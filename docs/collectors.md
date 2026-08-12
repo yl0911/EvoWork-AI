@@ -4,3 +4,6 @@
 - POST /api/collect/git - Git commit collector
 - POST /api/collect/import - Batch import
 - GET /api/collect/status - Collector status
+
+## Git Hook Installation
+python scripts/install_git_hook.py <repo_path>
