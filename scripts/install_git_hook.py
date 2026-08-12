@@ -30,6 +30,14 @@ start /B python "{script_path}"
 """
 
 
+def _find_python() -> str:
+    """检测可用的 Python 路径。优先用当前解释器。"""
+    exe = sys.executable
+    if exe and Path(exe).is_file():
+        return str(Path(exe).as_posix())
+    return "python"
+
+
 def install(repo_path: str) -> None:
     git_dir = Path(repo_path) / ".git"
     if not git_dir.is_dir():
@@ -41,12 +49,13 @@ def install(repo_path: str) -> None:
     hook_file = hooks_dir / "post-commit"
 
     script_str = str(SCRIPT_PATH).replace("\\", "/")
+    python_str = _find_python()
 
     # Windows 用 .bat，其他用 shell
     if sys.platform == "win32":
         if not hook_file.exists():
             hook_file = hooks_dir / "post-commit"
-            content = f"#!/bin/sh\n# EvoWork-AI post-commit hook\npython \"{script_str}\" &\n"
+            content = f"#!/bin/sh\n# EvoWork-AI post-commit hook\n\"{python_str}\" \"{script_str}\" &\n"
             hook_file.write_text(content, encoding="utf-8")
             # Git Bash on Windows 仍用 sh 格式
         else:
@@ -56,7 +65,7 @@ def install(repo_path: str) -> None:
                 return
             # 追加到已有 hook
             with open(hook_file, "a", encoding="utf-8") as f:
-                f.write(f"\n# EvoWork-AI post-commit hook\npython \"{script_str}\" &\n")
+                f.write(f"\n# EvoWork-AI post-commit hook\n\"{python_str}\" \"{script_str}\" &\n")
     else:
         content = HOOK_TEMPLATE.format(script_path=script_str)
         if hook_file.exists():
@@ -65,7 +74,7 @@ def install(repo_path: str) -> None:
                 print(f"Hook already installed in {repo_path}")
                 return
             with open(hook_file, "a") as f:
-                f.write(f"\n# EvoWork-AI post-commit hook\npython3 \"{script_str}\" &\n")
+                f.write(f"\n# EvoWork-AI post-commit hook\n\"{python_str}\" \"{script_str}\" &\n")
         else:
             hook_file.write_text(content)
 

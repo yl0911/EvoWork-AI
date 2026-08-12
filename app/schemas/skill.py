@@ -25,6 +25,9 @@ class SkillBase(BaseModel):
     # Phase 2 新增：Agent 协作
     agent_assistable: bool = False
     agent_assistable_parts: list[str] | None = None
+    # Phase 5: 系统 Skill
+    system_skill: bool = False
+    enabled: bool = True
 
 
 class SkillCreate(SkillBase):
@@ -46,6 +49,7 @@ class SkillUpdate(BaseModel):
     failure_fallback: str | None = None
     agent_assistable: bool | None = None
     agent_assistable_parts: list[str] | None = None
+    enabled: bool | None = None
 
 
 class SkillRead(SkillBase):

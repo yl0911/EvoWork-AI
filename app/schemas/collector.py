@@ -44,6 +44,40 @@ class ImportBatchRequest(BaseModel):
     items: list[ImportItem] = Field(min_length=1)
 
 
+# ── Shell Command ──────────────────────────────────
+
+class ShellCommandPayload(BaseModel):
+    command: str = Field(min_length=1, description="The shell command text")
+    exit_code: int = Field(default=0, description="Command exit code (0 = success)")
+    cwd: str | None = Field(default=None, description="Current working directory")
+    shell_type: str = Field(default="bash", description="Shell type: bash, zsh, powershell, cmd")
+    executed_at: datetime | None = None
+
+
+class ShellBatchPayload(BaseModel):
+    """Bulk import from shell history file or offline buffer."""
+    source: str = "shell"
+    commands: list[ShellCommandPayload] = Field(min_length=1)
+
+
+# ── ActivityWatch ──────────────────────────────────
+
+class ActivityWatchEventPayload(BaseModel):
+    """ActivityWatch 单条事件（窗口活动或浏览器活动）。"""
+    app: str = Field(default="", description="Application name (e.g. 'Visual Studio Code')")
+    title: str = Field(default="", description="Window title or browser tab title")
+    url: str | None = Field(default=None, description="Browser URL (for aw-watcher-web events)")
+    timestamp: datetime | None = Field(default=None, description="Event start time")
+    duration_seconds: float = Field(default=0, ge=0, description="Duration in seconds")
+
+
+class ActivityWatchBatchPayload(BaseModel):
+    """ActivityWatch 批量导入请求。"""
+    source: str = "activitywatch"
+    hostname: str | None = Field(default=None, description="AW hostname for bucket tracking")
+    events: list[ActivityWatchEventPayload] = Field(min_length=1)
+
+
 # ── Results ─────────────────────────────────────────
 
 class IngestResult(BaseModel):

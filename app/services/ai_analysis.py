@@ -152,10 +152,109 @@ def _cached_response(cached: AICache) -> dict:
     }
 
 
+def build_chat_context(db: Session, period: str = "week") -> str:
+    """构建 AI 聊天的系统上下文（事件 + 统计 + 分析数据）。"""
+    events = _load_period_events(db, period)
+    insights = summarize_insights(db, period=period)
+
+    analytics_context = ""
+    try:
+        from app.core.dependencies import get_analytics_engine
+        engine = get_analytics_engine()
+        shell_data = engine.shell_commands(period)
+        patterns_data = engine.work_patterns(period)
+
+        shell_lines = []
+        if shell_data.get("total_commands", 0) > 0:
+            shell_lines.append(f"Shell 命令总数: {shell_data['total_commands']}")
+            shell_lines.append(f"Shell 错误率: {shell_data['error_rate']}%")
+            if shell_data.get("type_distribution"):
+                dist = ", ".join(f"{k}: {v}" for k, v in shell_data["type_distribution"].items())
+                shell_lines.append(f"Shell 命令类型分布: {dist}")
+            if shell_data.get("top_commands"):
+                top = ", ".join(f"{c['command']}({c['count']})" for c in shell_data["top_commands"][:8])
+                shell_lines.append(f"高频命令 Top: {top}")
+            if shell_data.get("error_commands"):
+                errs = ", ".join(f"{c['command']}({c['count']})" for c in shell_data["error_commands"][:5])
+                shell_lines.append(f"频繁失败命令: {errs}")
+
+        pattern_lines = []
+        if patterns_data.get("total_events", 0) > 0:
+            pattern_lines.append(f"活跃天数: {patterns_data['active_days']}")
+            pattern_lines.append(f"项目切换次数: {patterns_data['project_switches']}")
+            if patterns_data.get("hourly_distribution"):
+                hourly = patterns_data["hourly_distribution"]
+                peak_hours = sorted(hourly.items(), key=lambda x: x[1], reverse=True)[:3]
+                peak_str = ", ".join(f"{h}时({c}次)" for h, c in peak_hours)
+                pattern_lines.append(f"高峰时段: {peak_str}")
+
+        if shell_lines or pattern_lines:
+            parts = ["--- 量化分析数据 ---"]
+            if shell_lines:
+                parts.append("[终端活动]\n" + "\n".join(shell_lines))
+            if pattern_lines:
+                parts.append("[工作节奏]\n" + "\n".join(pattern_lines))
+            analytics_context = "\n\n".join(parts)
+    except Exception:
+        pass
+
+    sections = [
+        f"统计信息:\n{insights}",
+    ]
+    if analytics_context:
+        sections.append(analytics_context)
+    sections.append(f"事件列表:\n{_format_events(events)}")
+
+    return "\n\n".join(sections)
+
+
 def generate_period_review(db: Session, period: str = "week", refresh: bool = False) -> dict:
     events = _load_period_events(db, period)
     insights = summarize_insights(db, period=period)
     gateway = get_llm_gateway()
+
+    # 获取额外分析数据
+    analytics_context = ""
+    try:
+        from app.core.dependencies import get_analytics_engine
+        engine = get_analytics_engine()
+        shell_data = engine.shell_commands(period)
+        patterns_data = engine.work_patterns(period)
+
+        shell_lines = []
+        if shell_data.get("total_commands", 0) > 0:
+            shell_lines.append(f"Shell 命令总数: {shell_data['total_commands']}")
+            shell_lines.append(f"Shell 错误率: {shell_data['error_rate']}%")
+            if shell_data.get("type_distribution"):
+                dist = ", ".join(f"{k}: {v}" for k, v in shell_data["type_distribution"].items())
+                shell_lines.append(f"Shell 命令类型分布: {dist}")
+            if shell_data.get("top_commands"):
+                top = ", ".join(f"{c['command']}({c['count']})" for c in shell_data["top_commands"][:8])
+                shell_lines.append(f"高频命令 Top: {top}")
+            if shell_data.get("error_commands"):
+                errs = ", ".join(f"{c['command']}({c['count']})" for c in shell_data["error_commands"][:5])
+                shell_lines.append(f"频繁失败命令: {errs}")
+
+        pattern_lines = []
+        if patterns_data.get("total_events", 0) > 0:
+            pattern_lines.append(f"活跃天数: {patterns_data['active_days']}")
+            pattern_lines.append(f"项目切换次数: {patterns_data['project_switches']}")
+            if patterns_data.get("hourly_distribution"):
+                hourly = patterns_data["hourly_distribution"]
+                peak_hours = sorted(hourly.items(), key=lambda x: x[1], reverse=True)[:3]
+                peak_str = ", ".join(f"{h}时({c}次)" for h, c in peak_hours)
+                pattern_lines.append(f"高峰时段: {peak_str}")
+
+        if shell_lines or pattern_lines:
+            parts = ["--- 量化分析数据 ---"]
+            if shell_lines:
+                parts.append("[终端活动]\n" + "\n".join(shell_lines))
+            if pattern_lines:
+                parts.append("[工作节奏]\n" + "\n".join(pattern_lines))
+            analytics_context = "\n\n".join(parts)
+    except Exception:
+        pass  # analytics 数据获取失败不影响主流程
+
     fingerprint = _fingerprint_events(events, kind="period-review", period=period, tag=None, model=gateway.model)
     cache_key = _cache_key(
         kind="period-review",
@@ -170,25 +269,29 @@ def generate_period_review(db: Session, period: str = "week", refresh: bool = Fa
         if cached:
             return _cached_response(cached)
 
-    prompt = f"""请基于下面的 WorkEvent 和统计信息，生成一个个人复盘。
+    prompt = f"""请基于下面的 WorkEvent、统计信息和量化分析数据，生成一个个人复盘。
 
 统计信息:
 {insights}
+
+{analytics_context}
 
 事件列表:
 {_format_events(events)}
 
 输出格式:
 1. 本周期工作/学习概览
-2. 观察到的习惯模式
-3. 可能的认知卡点或技术壁垒
-4. 建议沉淀的 Skill
+2. 观察到的习惯模式（结合终端活动和工作节奏数据）
+3. 可能的认知卡点或技术壁垒（特别关注频繁失败的命令和重复问题）
+4. 建议沉淀的 Skill（从高频操作和重复问题中提炼可复用流程）
 5. 下一步 3 个行动
 
 要求:
 - 不要使用监控、考核、排名语气。
 - 优先指出能帮助用户自主学习和突破问题的建议。
 - 如果某个判断只是推测，请标注"推测"。
+- 结合终端命令数据指出工作流优化机会（如频繁手动操作可以脚本化）。
+- 结合工作节奏数据给出时间管理建议（如高峰时段适合深度工作）。
 - 使用 Markdown 输出，但不要使用横线分隔。
 - 每个小节控制在 2-4 个短段或列表项，避免整段过长。
 - 列表项优先使用短句，适合仪表盘阅读。"""

@@ -44,3 +44,31 @@ def full_analysis(
     """完整分析报告。"""
     engine = get_analytics_engine()
     return engine.full_analysis(period)
+
+
+@router.get("/analytics/shell")
+def shell_analysis(
+    period: str = Query(default="month", pattern="^(week|month|year)$"),
+) -> dict:
+    """Shell 命令洞察：Top 命令、错误率、类型分布。"""
+    engine = get_analytics_engine()
+    return engine.shell_commands(period)
+
+
+@router.get("/analytics/patterns")
+def work_patterns(
+    period: str = Query(default="month", pattern="^(week|month|year)$"),
+) -> dict:
+    """工作节奏分析：小时分布、项目切换频率、活跃天数。"""
+    engine = get_analytics_engine()
+    return engine.work_patterns(period)
+
+
+@router.get("/analytics/timeline")
+def timeline(
+    period: str = Query(default="week", pattern="^(day|week|month)$"),
+    group_by: str = Query(default="project", pattern="^(project|event_type|source)$"),
+) -> dict:
+    """时间线数据：按分组返回事件时间跨度，用于甘特图可视化。"""
+    engine = get_analytics_engine()
+    return engine.timeline(period, group_by=group_by)

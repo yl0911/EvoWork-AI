@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import datetime, timedelta, timezone
 
 import duckdb
@@ -15,6 +16,9 @@ from sqlalchemy import select
 from app.core.constants import PERIOD_DAYS
 
 logger = logging.getLogger(__name__)
+
+# DuckDB Python bindings are not thread-safe; serialize all DuckDB operations.
+_duckdb_lock = threading.Lock()
 
 
 class AnalyticsEngine:
@@ -145,115 +149,119 @@ class AnalyticsEngine:
 
     def time_distribution(self, period: str = "month", group_by: str = "event_type") -> dict:
         """时间分布分析。"""
-        count = self._load_events(period)
-        if count == 0:
-            return {"period": period, "total_events": 0, "distribution": {}}
+        with _duckdb_lock:
+            count = self._load_events(period)
+            if count == 0:
+                return {"period": period, "total_events": 0, "distribution": {}}
 
-        conn = self._get_conn()
-        rows = conn.execute(f"""
-            SELECT {group_by}, COALESCE(SUM(duration_minutes), 0) as total_minutes, COUNT(*) as event_count
-            FROM events
-            GROUP BY {group_by}
-            ORDER BY total_minutes DESC
-        """).fetchall()
+            conn = self._get_conn()
+            rows = conn.execute(f"""
+                SELECT {group_by}, COALESCE(SUM(duration_minutes), 0) as total_minutes, COUNT(*) as event_count
+                FROM events
+                GROUP BY {group_by}
+                ORDER BY total_minutes DESC
+            """).fetchall()
 
-        return {
-            "period": period,
-            "group_by": group_by,
-            "total_events": count,
-            "distribution": {str(row[0]): {"minutes": row[1], "count": row[2]} for row in rows},
-        }
+            return {
+                "period": period,
+                "group_by": group_by,
+                "total_events": count,
+                "distribution": {str(row[0]): {"minutes": row[1], "count": row[2]} for row in rows},
+            }
 
     def habit_profile(self, period: str = "month") -> dict:
         """习惯画像：各类活动时间比例。"""
-        count = self._load_events(period)
-        if count == 0:
-            return {"period": period, "profile": {}, "total_minutes": 0}
+        with _duckdb_lock:
+            count = self._load_events(period)
+            if count == 0:
+                return {"period": period, "profile": {}, "total_minutes": 0}
 
-        conn = self._get_conn()
-        total = conn.execute("SELECT COALESCE(SUM(duration_minutes), 0) FROM events").fetchone()[0]
-        rows = conn.execute("""
-            SELECT event_type, COALESCE(SUM(duration_minutes), 0) as minutes
-            FROM events GROUP BY event_type ORDER BY minutes DESC
-        """).fetchall()
+            conn = self._get_conn()
+            total = conn.execute("SELECT COALESCE(SUM(duration_minutes), 0) FROM events").fetchone()[0]
+            rows = conn.execute("""
+                SELECT event_type, COALESCE(SUM(duration_minutes), 0) as minutes
+                FROM events GROUP BY event_type ORDER BY minutes DESC
+            """).fetchall()
 
-        profile = {}
-        for event_type, minutes in rows:
-            pct = round(minutes / total * 100, 1) if total > 0 else 0
-            profile[event_type] = {"minutes": minutes, "percentage": pct}
+            profile = {}
+            for event_type, minutes in rows:
+                pct = round(minutes / total * 100, 1) if total > 0 else 0
+                profile[event_type] = {"minutes": minutes, "percentage": pct}
 
-        return {
-            "period": period,
-            "total_minutes": total,
-            "profile": profile,
-        }
+            return {
+                "period": period,
+                "total_minutes": total,
+                "profile": profile,
+            }
 
     def repeated_problems(self, period: str = "month", threshold: int = 2) -> dict:
         """重复问题识别：按 project + event_type 分组。"""
-        count = self._load_events(period)
-        if count == 0:
-            return {"period": period, "repeated": []}
+        with _duckdb_lock:
+            count = self._load_events(period)
+            if count == 0:
+                return {"period": period, "repeated": []}
 
-        conn = self._get_conn()
-        rows = conn.execute("""
-            SELECT project, event_type, COUNT(*) as occurrence,
-                   COALESCE(SUM(duration_minutes), 0) as total_minutes,
-                   GROUP_CONCAT(DISTINCT title, ' | ') as titles
-            FROM events
-            WHERE event_layer = 'problem'
-            GROUP BY project, event_type
-            HAVING COUNT(*) >= ?
-            ORDER BY occurrence DESC
-        """, [threshold]).fetchall()
+            conn = self._get_conn()
+            rows = conn.execute("""
+                SELECT project, event_type, COUNT(*) as occurrence,
+                       COALESCE(SUM(duration_minutes), 0) as total_minutes,
+                       GROUP_CONCAT(DISTINCT title, ' | ') as titles
+                FROM events
+                WHERE event_layer = 'problem'
+                GROUP BY project, event_type
+                HAVING COUNT(*) >= ?
+                ORDER BY occurrence DESC
+            """, [threshold]).fetchall()
 
-        return {
-            "period": period,
-            "threshold": threshold,
-            "repeated": [
-                {
-                    "project": row[0] or "未归属",
-                    "event_type": row[1],
-                    "occurrences": row[2],
-                    "total_minutes": row[3],
-                    "titles": row[4],
-                }
-                for row in rows
-            ],
-        }
+            return {
+                "period": period,
+                "threshold": threshold,
+                "repeated": [
+                    {
+                        "project": row[0] or "未归属",
+                        "event_type": row[1],
+                        "occurrences": row[2],
+                        "total_minutes": row[3],
+                        "titles": row[4],
+                    }
+                    for row in rows
+                ],
+            }
 
     def efficiency_metrics(self, period: str = "month") -> dict:
         """效率指标：解决耗时、解决率等。"""
-        count = self._load_events(period)
-        if count == 0:
-            return {"period": period, "metrics": {}}
+        with _duckdb_lock:
+            count = self._load_events(period)
+            if count == 0:
+                return {"period": period, "metrics": {}}
 
-        conn = self._get_conn()
-        rows = conn.execute("""
-            SELECT outcome, COUNT(*) as cnt,
-                   AVG(duration_minutes) as avg_minutes,
-                   COALESCE(SUM(duration_minutes), 0) as total_minutes
-            FROM events
-            WHERE event_layer = 'problem'
-            GROUP BY outcome
-            ORDER BY cnt DESC
-        """).fetchall()
+            conn = self._get_conn()
+            rows = conn.execute("""
+                SELECT outcome, COUNT(*) as cnt,
+                       AVG(duration_minutes) as avg_minutes,
+                       COALESCE(SUM(duration_minutes), 0) as total_minutes
+                FROM events
+                WHERE event_layer = 'problem'
+                GROUP BY outcome
+                ORDER BY cnt DESC
+            """).fetchall()
 
-        total_problem = sum(r[1] for r in rows)
-        resolved = next((r[1] for r in rows if r[0] == "resolved"), 0)
+            total_problem = sum(r[1] for r in rows)
+            resolved = next((r[1] for r in rows if r[0] == "resolved"), 0)
 
-        return {
-            "period": period,
-            "total_problem_events": total_problem,
-            "resolve_rate": round(resolved / total_problem * 100, 1) if total_problem > 0 else 0,
-            "by_outcome": {
-                str(row[0]): {
-                    "count": row[1],
-                    "avg_minutes": round(row[2] or 0, 1),
-                    "total_minutes": row[3],
-                }
-                for row in rows
-            },
-        }
+            return {
+                "period": period,
+                "total_problem_events": total_problem,
+                "resolve_rate": round(resolved / total_problem * 100, 1) if total_problem > 0 else 0,
+                "by_outcome": {
+                    str(row[0]): {
+                        "count": row[1],
+                        "avg_minutes": round(row[2] or 0, 1),
+                        "total_minutes": row[3],
+                    }
+                    for row in rows
+                },
+            }
 
     def full_analysis(self, period: str = "month") -> dict:
         """完整分析报告。"""
@@ -264,4 +272,250 @@ class AnalyticsEngine:
             "habit_profile": self.habit_profile(period),
             "repeated_problems": self.repeated_problems(period),
             "efficiency_metrics": self.efficiency_metrics(period),
+            "shell_commands": self.shell_commands(period),
+            "work_patterns": self.work_patterns(period),
         }
+
+    # ── 时间线 ────────────────────────────────────────
+
+    def timeline(self, period: str = "week", group_by: str = "project") -> dict:
+        """时间线数据：按 group_by 分组返回事件时间跨度，用于甘特图。"""
+        with _duckdb_lock:
+            from app.core.constants import PERIOD_DAYS
+
+            count = self._load_events(period)
+            if count == 0:
+                return {
+                    "period": period,
+                    "group_by": group_by,
+                    "start_date": "",
+                    "end_date": "",
+                    "groups": [],
+                }
+
+            conn = self._get_conn()
+
+            # 确定日期范围
+            date_range = conn.execute("""
+                SELECT MIN(started_at), MAX(started_at)
+                FROM events WHERE started_at != ''
+            """).fetchone()
+            start_date = date_range[0] or ""
+            end_date = date_range[1] or ""
+
+            # 按分组维度查询事件
+            valid_group = group_by if group_by in ("project", "event_type", "source") else "project"
+            rows = conn.execute(f"""
+                SELECT {valid_group}, id, title, event_type, source, outcome,
+                       duration_minutes, started_at
+                FROM events
+                WHERE started_at != ''
+                ORDER BY {valid_group}, started_at
+            """).fetchall()
+
+            # 按分组整理
+            groups_map: dict[str, list] = {}
+            for row in rows:
+                group_name = str(row[0]) if row[0] else "未归属"
+                if group_name not in groups_map:
+                    groups_map[group_name] = []
+                groups_map[group_name].append({
+                    "id": row[1],
+                    "title": row[2],
+                    "event_type": row[3],
+                    "source": row[4],
+                    "outcome": row[5],
+                    "duration_minutes": row[6],
+                    "started_at": row[7],
+                })
+
+            groups = [
+                {"name": name, "events": events}
+                for name, events in sorted(groups_map.items(), key=lambda x: -len(x[1]))
+            ]
+
+            return {
+                "period": period,
+                "group_by": valid_group,
+                "start_date": start_date,
+                "end_date": end_date,
+                "groups": groups,
+            }
+
+    # ── Shell 命令分析 ────────────────────────────────
+
+    def _load_shell_events(self, period: str = "month") -> int:
+        """加载 shell 来源事件（含 metadata 展开字段）到 DuckDB。"""
+        from app.models import WorkEvent
+
+        conn = self._get_conn()
+        days = PERIOD_DAYS.get(period, 30)
+        start_date = datetime.now(timezone.utc) - timedelta(days=days)
+
+        try:
+            with self._get_db_session() as db:
+                events = list(
+                    db.execute(
+                        select(WorkEvent)
+                        .where(
+                            WorkEvent.started_at >= start_date,
+                            WorkEvent.source == "shell",
+                        )
+                    ).scalars()
+                )
+
+            conn.execute("DROP TABLE IF EXISTS shell_events")
+            if not events:
+                conn.execute("""
+                    CREATE TABLE shell_events (
+                        id TEXT, event_type TEXT, title TEXT, project TEXT,
+                        outcome TEXT, command TEXT, exit_code INTEGER,
+                        shell_type TEXT, started_at TEXT, hour INTEGER
+                    )
+                """)
+                return 0
+
+            rows = []
+            for e in events:
+                meta = e.collector_metadata or {}
+                cmd = (meta.get("command") or e.title or "").replace("'", "''")
+                rows.append((
+                    e.id, e.event_type, (e.title or "").replace("'", "''"),
+                    (e.project or "").replace("'", "''"), e.outcome,
+                    cmd, meta.get("exit_code", 0),
+                    meta.get("shell_type", ""),
+                    e.started_at.isoformat() if e.started_at else "",
+                    e.started_at.hour if e.started_at else 0,
+                ))
+
+            conn.execute("""
+                CREATE TABLE shell_events AS
+                SELECT * FROM (VALUES
+                    {}
+                ) AS t(id, event_type, title, project, outcome, command, exit_code, shell_type, started_at, hour)
+            """.format(
+                ", ".join(
+                    f"('{r[0]}', '{r[1]}', '{r[2]}', '{r[3]}', '{r[4]}', "
+                    f"'{r[5]}', {r[6]}, '{r[7]}', '{r[8]}', {r[9]})"
+                    for r in rows
+                )
+            ))
+            return len(rows)
+
+        except Exception as exc:
+            logger.warning("Failed to load shell events: %s", exc)
+            return 0
+
+    def shell_commands(self, period: str = "month") -> dict:
+        """Shell 命令洞察：Top 命令、错误率、类型分布。"""
+        with _duckdb_lock:
+            count = self._load_shell_events(period)
+            if count == 0:
+                return {
+                    "period": period, "total_commands": 0,
+                    "top_commands": [], "type_distribution": {},
+                    "error_rate": 0, "error_commands": [],
+                }
+
+            conn = self._get_conn()
+
+            # Top 15 命令（按标题聚合，截取前 60 字符）
+            top_rows = conn.execute("""
+                SELECT title, COUNT(*) as cnt
+                FROM shell_events
+                GROUP BY title
+                ORDER BY cnt DESC
+                LIMIT 15
+            """).fetchall()
+
+            # 类型分布
+            type_rows = conn.execute("""
+                SELECT event_type, COUNT(*) as cnt
+                FROM shell_events
+                GROUP BY event_type
+                ORDER BY cnt DESC
+            """).fetchall()
+
+            # 错误率
+            total = conn.execute("SELECT COUNT(*) FROM shell_events").fetchone()[0]
+            errors = conn.execute(
+                "SELECT COUNT(*) FROM shell_events WHERE outcome = 'failed'"
+            ).fetchone()[0]
+            error_rate = round(errors / total * 100, 1) if total > 0 else 0
+
+            # 错误命令 Top 5
+            error_rows = conn.execute("""
+                SELECT title, COUNT(*) as cnt
+                FROM shell_events
+                WHERE outcome = 'failed'
+                GROUP BY title
+                ORDER BY cnt DESC
+                LIMIT 5
+            """).fetchall()
+
+            return {
+                "period": period,
+                "total_commands": count,
+                "top_commands": [{"command": r[0], "count": r[1]} for r in top_rows],
+                "type_distribution": {r[0]: r[1] for r in type_rows},
+                "error_rate": error_rate,
+                "error_commands": [{"command": r[0], "count": r[1]} for r in error_rows],
+            }
+
+    # ── 工作节奏分析 ──────────────────────────────────
+
+    def work_patterns(self, period: str = "month") -> dict:
+        """工作节奏：小时分布、项目切换频率、活跃天数。"""
+        with _duckdb_lock:
+            count = self._load_events(period)
+            if count == 0:
+                return {
+                    "period": period, "total_events": 0,
+                    "hourly_distribution": {}, "project_switches": 0,
+                    "active_days": 0, "daily_event_count": {},
+                }
+
+            conn = self._get_conn()
+
+            # 需要从 started_at ISO 字符串提取小时
+            hour_rows = conn.execute("""
+                SELECT SUBSTR(started_at, 12, 2) as hour_str, COUNT(*) as cnt
+                FROM events
+                WHERE started_at != ''
+                GROUP BY hour_str
+                ORDER BY hour_str
+            """).fetchall()
+            hourly = {int(r[0]): r[1] for r in hour_rows if r[0].isdigit()}
+
+            # 活跃天数
+            day_rows = conn.execute("""
+                SELECT SUBSTR(started_at, 1, 10) as day_str, COUNT(*) as cnt
+                FROM events
+                WHERE started_at != ''
+                GROUP BY day_str
+                ORDER BY day_str
+            """).fetchall()
+            daily_count = {r[0]: r[1] for r in day_rows if r[0]}
+            active_days = len(daily_count)
+
+            # 项目切换次数（按时间排序，相邻事件 project 不同则计为一次切换）
+            all_events = conn.execute("""
+                SELECT project FROM events
+                WHERE started_at != ''
+                ORDER BY started_at
+            """).fetchall()
+            switches = 0
+            prev_project = None
+            for (project,) in all_events:
+                if prev_project is not None and project != prev_project and project and prev_project:
+                    switches += 1
+                prev_project = project
+
+            return {
+                "period": period,
+                "total_events": count,
+                "hourly_distribution": hourly,
+                "project_switches": switches,
+                "active_days": active_days,
+                "daily_event_count": daily_count,
+            }

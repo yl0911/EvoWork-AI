@@ -29,13 +29,17 @@ export const api = {
   eventHistory: (id: string) => request<any[]>(`/events/${id}/history`),
 
   // Skills
-  listSkills: (category?: string) => {
-    const q = category ? `?category=${category}` : '';
-    return request<any[]>(`/skills${q}`);
+  listSkills: (category?: string, system?: boolean) => {
+    const params = new URLSearchParams();
+    if (category) params.set('category', category);
+    if (system !== undefined) params.set('system', String(system));
+    const q = params.toString();
+    return request<any[]>(`/skills${q ? `?${q}` : ''}`);
   },
   createSkill: (data: any) => request<any>('/skills', { method: 'POST', body: JSON.stringify(data) }),
   updateSkill: (id: string, data: any) => request<any>(`/skills/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteSkill: (id: string) => request<any>(`/skills/${id}`, { method: 'DELETE' }),
+  toggleSkill: (id: string) => request<any>(`/skills/${id}/toggle`, { method: 'PATCH' }),
   useSkill: (id: string, data: any) => request<any>(`/skills/${id}/use`, { method: 'POST', body: JSON.stringify(data) }),
 
   // Insights
@@ -46,6 +50,12 @@ export const api = {
     request<any>('/ai/period-review', { method: 'POST', body: JSON.stringify({ period, refresh }) }),
   skillDraft: (period: string, tag?: string, refresh = false) =>
     request<any>('/ai/skill-draft', { method: 'POST', body: JSON.stringify({ period, tag, refresh }) }),
+  chatStream: (messages: { role: string; content: string }[], period = 'week') =>
+    fetch('/api/ai/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages, period }),
+    }),
 
   // Search
   search: (q: string, topK = 5, scope?: string) => {
@@ -62,6 +72,9 @@ export const api = {
   repeatedProblems: (period: string, threshold = 2) => request<any>(`/analytics/repeated?period=${period}&threshold=${threshold}`),
   efficiencyMetrics: (period: string) => request<any>(`/analytics/efficiency?period=${period}`),
   fullAnalysis: (period: string) => request<any>(`/analytics/full?period=${period}`),
+  shellAnalysis: (period: string) => request<any>(`/analytics/shell?period=${period}`),
+  workPatterns: (period: string) => request<any>(`/analytics/patterns?period=${period}`),
+  timeline: (period: string, groupBy = 'project') => request<any>(`/analytics/timeline?period=${period}&group_by=${groupBy}`),
 
   // System
   health: () => request<any>('/health'),
@@ -72,4 +85,6 @@ export const api = {
 
   // Collectors
   collectorStatus: () => request<any>('/collect/status'),
+  activitywatchImport: (events: any[]) =>
+    request<any>('/collect/activitywatch', { method: 'POST', body: JSON.stringify({ source: 'activitywatch', events }) }),
 };

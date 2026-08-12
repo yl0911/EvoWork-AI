@@ -24,7 +24,7 @@ def utc_now() -> datetime:
 # ── Skill 分类定义 ────────────────────────────────────
 
 SKILL_CATEGORIES = ("thinking", "reusable", "open_source")
-SKILL_SOURCES = ("user_generated", "ai_generated", "open_source", "mined")
+SKILL_SOURCES = ("user_generated", "ai_generated", "open_source", "mined", "system")
 
 
 class Skill(Base):
@@ -56,6 +56,10 @@ class Skill(Base):
     # ── Phase 2 新增：使用统计 ──
     usage_count: Mapped[int] = mapped_column(Integer, default=0)
     avg_effectiveness: Mapped[float] = mapped_column(Float, default=0.0)
+
+    # ── Phase 5: 系统 Skill ──
+    system_skill: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # ── 时间 ──
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

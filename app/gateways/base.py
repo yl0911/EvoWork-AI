@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Generator
 
 
 # ── LLM ──────────────────────────────────────────────
@@ -50,6 +51,18 @@ class BaseLLMGateway(ABC):
         temperature: float = 0.2,
     ) -> LLMResponse:
         """发送对话请求并返回结果。"""
+
+    @abstractmethod
+    def chat_stream(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float = 0.7,
+    ) -> Generator[str, None, None]:
+        """流式对话请求，逐 token yield 内容字符串。
+
+        messages: [{"role": "system"|"user"|"assistant", "content": "..."}, ...]
+        """
 
 
 # ── Database ──────────────────────────────────────────

@@ -1,20 +1,20 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
-import { Trash2, Plus, Calendar, Pencil, X, Check, History, ChevronDown, ChevronUp } from 'lucide-react';
+import { Trash2, Plus, Calendar, Pencil, X, Check, History, ChevronDown, ChevronUp, Filter, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 
 const EVENT_TYPES = [
   'search', 'debug', 'coding', 'reading', 'writing',
   'design', 'error', 'planning', 'summary', 'note',
-  'app_usage', 'browser', 'context_switch',
+  'ops', 'research', 'app_usage', 'browser', 'context_switch',
 ] as const;
 
 const EVENT_LAYERS = ['habit', 'problem', 'result'] as const;
-const SOURCES = ['manual', 'browser', 'ide', 'git', 'ai_chat', 'document'] as const;
-const OUTCOMES = ['resolved', 'partial', 'unresolved'] as const;
+const SOURCES = ['manual', 'browser', 'ide', 'git', 'shell', 'ai_chat', 'document'] as const;
+const OUTCOMES = ['resolved', 'partial', 'unresolved', 'failed'] as const;
 const PRIVACY_LEVELS = ['metadata', 'content', 'private'] as const;
 
 const LAYER_VARIANT: Record<string, 'secondary' | 'default' | 'success'> = {
@@ -27,6 +27,18 @@ const OUTCOME_VARIANT: Record<string, 'success' | 'warning' | 'destructive'> = {
   resolved: 'success',
   partial: 'warning',
   unresolved: 'destructive',
+  failed: 'destructive',
+};
+
+/* Source color mapping */
+const SOURCE_COLOR: Record<string, string> = {
+  git: '#22c55e',
+  shell: '#a855f7',
+  manual: '#3b82f6',
+  ide: '#f59e0b',
+  browser: '#06b6d4',
+  ai_chat: '#ec4899',
+  document: '#8b5cf6',
 };
 
 interface EventFormData {
@@ -66,6 +78,22 @@ function formatTime(iso: string | null): string {
   return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
+function formatDateLabel(dateStr: string): string {
+  const d = new Date(dateStr);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (d.toDateString() === today.toDateString()) return 'Today';
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' });
+}
+
+function getDateKey(iso: string | null): string {
+  if (!iso) return 'unknown';
+  return iso.slice(0, 10);
+}
+
 function eventToForm(ev: any): EventFormData {
   return {
     title: ev.title ?? '',
@@ -82,10 +110,36 @@ function eventToForm(ev: any): EventFormData {
   };
 }
 
+/* ── Filter pill component ── */
+function FilterPill({ label, active, count, onClick }: { label: string; active: boolean; count?: number; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+        active
+          ? 'bg-primary text-primary-foreground'
+          : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+      }`}
+    >
+      {label}
+      {count !== undefined && count > 0 && (
+        <span className={`rounded-full px-1 text-[10px] ${active ? 'bg-primary-foreground/20' : 'bg-background/50'}`}>
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
 export default function Events() {
   const [events, setEvents] = useState<any[]>([]);
   const [form, setForm] = useState<EventFormData>(EMPTY_FORM);
   const [loading, setLoading] = useState(false);
+
+  // Filter state
+  const [filterSource, setFilterSource] = useState<string>('all');
+  const [filterType, setFilterType] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Edit state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -96,6 +150,9 @@ export default function Events() {
   const [historyId, setHistoryId] = useState<string | null>(null);
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Expanded events
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const fetchEvents = useCallback(async () => {
     try {
@@ -110,16 +167,68 @@ export default function Events() {
     fetchEvents();
   }, [fetchEvents]);
 
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
-  ) => {
+  /* ── Filtering ── */
+  const filteredEvents = useMemo(() => {
+    let result = events;
+    if (filterSource !== 'all') {
+      result = result.filter((e) => e.source === filterSource);
+    }
+    if (filterType !== 'all') {
+      result = result.filter((e) => e.event_type === filterType);
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (e) =>
+          (e.title || '').toLowerCase().includes(q) ||
+          (e.project || '').toLowerCase().includes(q) ||
+          (e.content || '').toLowerCase().includes(q) ||
+          (e.tags || []).some((t: string) => t.toLowerCase().includes(q)),
+      );
+    }
+    return result;
+  }, [events, filterSource, filterType, searchQuery]);
+
+  /* ── Group by date ── */
+  const groupedEvents = useMemo(() => {
+    const groups: Record<string, any[]> = {};
+    for (const ev of filteredEvents) {
+      const key = getDateKey(ev.started_at || ev.created_at);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(ev);
+    }
+    return Object.entries(groups).sort(([a], [b]) => b.localeCompare(a));
+  }, [filteredEvents]);
+
+  /* ── Source counts ── */
+  const sourceCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const e of events) {
+      const s = e.source || 'manual';
+      counts[s] = (counts[s] || 0) + 1;
+    }
+    return counts;
+  }, [events]);
+
+  /* ── Active event types ── */
+  const activeTypes = useMemo(() => {
+    const types: Record<string, number> = {};
+    for (const e of events) {
+      const t = e.event_type || 'note';
+      types[t] = (types[t] || 0) + 1;
+    }
+    return Object.entries(types)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 8);
+  }, [events]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title.trim()) return;
-
     setLoading(true);
     try {
       const payload = {
@@ -131,9 +240,7 @@ export default function Events() {
       await api.createEvent(payload);
       setForm(EMPTY_FORM);
       await fetchEvents();
-    } catch {
-      /* retry */
-    } finally {
+    } catch { /* retry */ } finally {
       setLoading(false);
     }
   };
@@ -142,28 +249,15 @@ export default function Events() {
     try {
       await api.deleteEvent(id);
       await fetchEvents();
-    } catch {
-      /* ignore */
-    }
+    } catch { /* ignore */ }
   };
 
   // ── Edit ──
-  const startEdit = (ev: any) => {
-    setEditingId(ev.id);
-    setEditForm(eventToForm(ev));
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditForm(EMPTY_FORM);
-  };
-
-  const handleEditChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
-  ) => {
+  const startEdit = (ev: any) => { setEditingId(ev.id); setEditForm(eventToForm(ev)); };
+  const cancelEdit = () => { setEditingId(null); setEditForm(EMPTY_FORM); };
+  const handleEditChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setEditForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
-
   const saveEdit = async () => {
     if (!editingId || !editForm.title.trim()) return;
     setSaving(true);
@@ -177,30 +271,31 @@ export default function Events() {
       await api.updateEvent(editingId, payload);
       setEditingId(null);
       await fetchEvents();
-    } catch {
-      /* keep form */
-    } finally {
+    } catch { /* keep form */ } finally {
       setSaving(false);
     }
   };
 
   // ── History ──
   const toggleHistory = async (id: string) => {
-    if (historyId === id) {
-      setHistoryId(null);
-      setHistoryData([]);
-      return;
-    }
+    if (historyId === id) { setHistoryId(null); setHistoryData([]); return; }
     setHistoryId(id);
     setHistoryLoading(true);
     try {
       const data = await api.eventHistory(id);
       setHistoryData(data);
-    } catch {
-      setHistoryData([]);
-    } finally {
+    } catch { setHistoryData([]); } finally {
       setHistoryLoading(false);
     }
+  };
+
+  // ── Expand/collapse ──
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
   };
 
   return (
@@ -210,35 +305,33 @@ export default function Events() {
         Events
       </h1>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* ---- Left: Create form ---- */}
-        <Card>
+      <div className="grid gap-6 lg:grid-cols-5">
+        {/* ---- Left: Create form (2 cols) ---- */}
+        <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>New Event</CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <form onSubmit={handleSubmit} className="flex flex-col gap-3">
               <div className="space-y-1">
                 <label className="text-sm font-medium" htmlFor="title">Title</label>
                 <Input id="title" name="title" placeholder="Event title" value={form.title} onChange={handleChange} required />
               </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
-                  <label className="text-sm font-medium" htmlFor="event_type">Event Type</label>
+                  <label className="text-sm font-medium" htmlFor="event_type">Type</label>
                   <select id="event_type" name="event_type" className={selectClass} value={form.event_type} onChange={handleChange}>
                     {EVENT_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-sm font-medium" htmlFor="event_layer">Event Layer</label>
+                  <label className="text-sm font-medium" htmlFor="event_layer">Layer</label>
                   <select id="event_layer" name="event_layer" className={selectClass} value={form.event_layer} onChange={handleChange}>
                     {EVENT_LAYERS.map((l) => (<option key={l} value={l}>{l}</option>))}
                   </select>
                 </div>
               </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <label className="text-sm font-medium" htmlFor="source">Source</label>
                   <select id="source" name="source" className={selectClass} value={form.source} onChange={handleChange}>
@@ -250,8 +343,7 @@ export default function Events() {
                   <Input id="project" name="project" placeholder="Project name" value={form.project} onChange={handleChange} />
                 </div>
               </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <label className="text-sm font-medium" htmlFor="duration_minutes">Duration (min)</label>
                   <Input id="duration_minutes" name="duration_minutes" type="number" min={0} placeholder="0" value={form.duration_minutes} onChange={handleChange} />
@@ -263,8 +355,7 @@ export default function Events() {
                   </select>
                 </div>
               </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <label className="text-sm font-medium" htmlFor="privacy_level">Privacy</label>
                   <select id="privacy_level" name="privacy_level" className={selectClass} value={form.privacy_level} onChange={handleChange}>
@@ -276,17 +367,14 @@ export default function Events() {
                   <Input id="started_at" name="started_at" type="datetime-local" value={form.started_at} onChange={handleChange} />
                 </div>
               </div>
-
               <div className="space-y-1">
                 <label className="text-sm font-medium" htmlFor="tags">Tags <span className="text-muted-foreground">(comma-separated)</span></label>
                 <Input id="tags" name="tags" placeholder="react, debugging, api" value={form.tags} onChange={handleChange} />
               </div>
-
               <div className="space-y-1">
                 <label className="text-sm font-medium" htmlFor="content">Content</label>
                 <Textarea id="content" name="content" placeholder="Event details..." value={form.content} onChange={handleChange} />
               </div>
-
               <Button type="submit" disabled={loading} className="w-full">
                 <Plus className="mr-2 h-4 w-4" />
                 {loading ? 'Creating...' : 'Create Event'}
@@ -295,162 +383,247 @@ export default function Events() {
           </CardContent>
         </Card>
 
-        {/* ---- Right: Event timeline ---- */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Event Timeline</CardTitle>
+        {/* ---- Right: Event timeline (3 cols) ---- */}
+        <Card className="lg:col-span-3">
+          <CardHeader className="space-y-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                Event Timeline
+                <Badge variant="secondary" className="text-xs">{filteredEvents.length}</Badge>
+              </CardTitle>
+            </div>
+
+            {/* Search */}
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search events..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </div>
+
+            {/* Source filter */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <FilterPill label="All" active={filterSource === 'all'} count={events.length} onClick={() => setFilterSource('all')} />
+              {Object.entries(sourceCounts)
+                .sort(([, a], [, b]) => b - a)
+                .map(([src, count]) => (
+                  <FilterPill
+                    key={src}
+                    label={src}
+                    active={filterSource === src}
+                    count={count}
+                    onClick={() => setFilterSource(filterSource === src ? 'all' : src)}
+                  />
+                ))}
+            </div>
+
+            {/* Type filter */}
+            {activeTypes.length > 1 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <FilterPill label="All Types" active={filterType === 'all'} onClick={() => setFilterType('all')} />
+                {activeTypes.map(([type, count]) => (
+                  <FilterPill
+                    key={type}
+                    label={type}
+                    active={filterType === type}
+                    count={count}
+                    onClick={() => setFilterType(filterType === type ? 'all' : type)}
+                  />
+                ))}
+              </div>
+            )}
           </CardHeader>
+
           <CardContent>
-            {events.length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">No events yet.</p>
+            {filteredEvents.length === 0 ? (
+              <p className="py-12 text-center text-sm text-muted-foreground">
+                {events.length === 0 ? 'No events yet.' : 'No events match your filters.'}
+              </p>
             ) : (
-              <ul className="space-y-4">
-                {events.map((ev) => {
-                  const isEditing = editingId === ev.id;
-                  const showHistory = historyId === ev.id;
+              <div className="space-y-6 max-h-[700px] overflow-y-auto pr-1">
+                {groupedEvents.map(([dateKey, dayEvents]) => (
+                  <div key={dateKey}>
+                    {/* Date header */}
+                    <div className="sticky top-0 z-10 mb-2 flex items-center gap-2 bg-card pb-1">
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        {formatDateLabel(dateKey)}
+                      </span>
+                      <div className="h-px flex-1 bg-border" />
+                      <span className="text-[10px] text-muted-foreground">{dayEvents.length} events</span>
+                    </div>
 
-                  return (
-                    <li key={ev.id} className="relative rounded-lg border p-4 transition-colors hover:bg-muted/50">
-                      {isEditing ? (
-                        /* ── Edit form ── */
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-semibold">Edit Event</span>
-                            <div className="flex gap-1">
-                              <Button size="icon" variant="ghost" onClick={saveEdit} disabled={saving}>
-                                {saving ? <span className="text-xs">...</span> : <Check className="h-4 w-4 text-green-600" />}
-                              </Button>
-                              <Button size="icon" variant="ghost" onClick={cancelEdit}>
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
+                    {/* Events for this day */}
+                    <div className="space-y-2">
+                      {dayEvents.map((ev: any) => {
+                        const isEditing = editingId === ev.id;
+                        const showHistory = historyId === ev.id;
+                        const isExpanded = expandedIds.has(ev.id);
+                        const sourceColor = SOURCE_COLOR[ev.source] || '#6b7280';
 
-                          <Input name="title" placeholder="Title" value={editForm.title} onChange={handleEditChange} />
+                        return (
+                          <div
+                            key={ev.id}
+                            className="relative rounded-lg border-l-[3px] border border-l-secondary p-3 transition-colors hover:bg-muted/40"
+                            style={{ borderLeftColor: sourceColor }}
+                          >
+                            {isEditing ? (
+                              /* ── Edit form ── */
+                              <div className="space-y-2.5">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm font-semibold">Edit Event</span>
+                                  <div className="flex gap-1">
+                                    <Button size="icon" variant="ghost" onClick={saveEdit} disabled={saving}>
+                                      {saving ? <span className="text-xs">...</span> : <Check className="h-4 w-4 text-green-600" />}
+                                    </Button>
+                                    <Button size="icon" variant="ghost" onClick={cancelEdit}>
+                                      <X className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                </div>
+                                <Input name="title" placeholder="Title" value={editForm.title} onChange={handleEditChange} />
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                  <select name="event_type" className={selectClass} value={editForm.event_type} onChange={handleEditChange}>
+                                    {EVENT_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
+                                  </select>
+                                  <select name="event_layer" className={selectClass} value={editForm.event_layer} onChange={handleEditChange}>
+                                    {EVENT_LAYERS.map((l) => (<option key={l} value={l}>{l}</option>))}
+                                  </select>
+                                </div>
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                  <select name="source" className={selectClass} value={editForm.source} onChange={handleEditChange}>
+                                    {SOURCES.map((s) => (<option key={s} value={s}>{s}</option>))}
+                                  </select>
+                                  <Input name="project" placeholder="Project" value={editForm.project} onChange={handleEditChange} />
+                                </div>
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                  <Input name="duration_minutes" type="number" min={0} placeholder="Duration (min)" value={editForm.duration_minutes} onChange={handleEditChange} />
+                                  <select name="outcome" className={selectClass} value={editForm.outcome} onChange={handleEditChange}>
+                                    {OUTCOMES.map((o) => (<option key={o} value={o}>{o}</option>))}
+                                  </select>
+                                </div>
+                                <Input name="started_at" type="datetime-local" value={editForm.started_at} onChange={handleEditChange} />
+                                <Input name="tags" placeholder="Tags (comma-separated)" value={editForm.tags} onChange={handleEditChange} />
+                                <Textarea name="content" placeholder="Content" value={editForm.content} onChange={handleEditChange} className="min-h-[80px]" />
+                              </div>
+                            ) : (
+                              /* ── Compact display ── */
+                              <>
+                                {/* Row 1: title + action buttons */}
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <h3 className="font-medium text-sm truncate">{ev.title}</h3>
+                                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{ev.event_type}</Badge>
+                                      {ev.event_layer && (
+                                        <Badge variant={LAYER_VARIANT[ev.event_layer] ?? 'default'} className="text-[10px] px-1.5 py-0 h-4">
+                                          {ev.event_layer}
+                                        </Badge>
+                                      )}
+                                      {ev.outcome && ev.outcome !== 'resolved' && (
+                                        <Badge variant={OUTCOME_VARIANT[ev.outcome] ?? 'default'} className="text-[10px] px-1.5 py-0 h-4">
+                                          {ev.outcome}
+                                        </Badge>
+                                      )}
+                                      {ev.source && (
+                                        <span className="text-[10px] font-medium" style={{ color: sourceColor }}>{ev.source}</span>
+                                      )}
+                                      {ev.duration_minutes > 0 && (
+                                        <span className="text-[10px] text-muted-foreground">{ev.duration_minutes}m</span>
+                                      )}
+                                      {ev.project && (
+                                        <span className="text-[10px] text-muted-foreground truncate max-w-[100px]">{ev.project}</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="flex shrink-0 items-center gap-0.5">
+                                    <span className="text-[10px] text-muted-foreground mr-1">
+                                      {ev.started_at ? new Date(ev.started_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : ''}
+                                    </span>
+                                    {(ev.content || (Array.isArray(ev.tags) && ev.tags.length > 0)) && (
+                                      <button type="button" onClick={() => toggleExpand(ev.id)} className="rounded p-1 text-muted-foreground hover:bg-secondary">
+                                        {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                                      </button>
+                                    )}
+                                    <button type="button" onClick={() => toggleHistory(ev.id)} className="rounded p-1 text-muted-foreground hover:bg-secondary" title="History">
+                                      <History className="h-3 w-3" />
+                                    </button>
+                                    <button type="button" onClick={() => startEdit(ev)} className="rounded p-1 text-muted-foreground hover:bg-secondary" title="Edit">
+                                      <Pencil className="h-3 w-3" />
+                                    </button>
+                                    <button type="button" onClick={() => handleDelete(ev.id)} className="rounded p-1 text-muted-foreground hover:text-destructive" title="Delete">
+                                      <Trash2 className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                </div>
 
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <select name="event_type" className={selectClass} value={editForm.event_type} onChange={handleEditChange}>
-                              {EVENT_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
-                            </select>
-                            <select name="event_layer" className={selectClass} value={editForm.event_layer} onChange={handleEditChange}>
-                              {EVENT_LAYERS.map((l) => (<option key={l} value={l}>{l}</option>))}
-                            </select>
-                          </div>
-
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <select name="source" className={selectClass} value={editForm.source} onChange={handleEditChange}>
-                              {SOURCES.map((s) => (<option key={s} value={s}>{s}</option>))}
-                            </select>
-                            <Input name="project" placeholder="Project" value={editForm.project} onChange={handleEditChange} />
-                          </div>
-
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <Input name="duration_minutes" type="number" min={0} placeholder="Duration (min)" value={editForm.duration_minutes} onChange={handleEditChange} />
-                            <select name="outcome" className={selectClass} value={editForm.outcome} onChange={handleEditChange}>
-                              {OUTCOMES.map((o) => (<option key={o} value={o}>{o}</option>))}
-                            </select>
-                          </div>
-
-                          <Input name="started_at" type="datetime-local" value={editForm.started_at} onChange={handleEditChange} />
-
-                          <Input name="tags" placeholder="Tags (comma-separated)" value={editForm.tags} onChange={handleEditChange} />
-
-                          <Textarea name="content" placeholder="Content" value={editForm.content} onChange={handleEditChange} className="min-h-[80px]" />
-                        </div>
-                      ) : (
-                        /* ── Display mode ── */
-                        <>
-                          {/* Action buttons */}
-                          <div className="absolute right-3 top-3 flex gap-1">
-                            <button type="button" onClick={() => toggleHistory(ev.id)} className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground" title="History">
-                              <History className="h-3.5 w-3.5" />
-                            </button>
-                            <button type="button" onClick={() => startEdit(ev)} className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Edit">
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                            <button type="button" onClick={() => handleDelete(ev.id)} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Delete">
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-
-                          {/* Title */}
-                          <h3 className="mb-2 pr-20 font-semibold">{ev.title}</h3>
-
-                          {/* Badges */}
-                          <div className="mb-2 flex flex-wrap items-center gap-2">
-                            {ev.event_type && <Badge variant="outline">{ev.event_type}</Badge>}
-                            {ev.source && <Badge variant="outline">{ev.source}</Badge>}
-                            {ev.event_layer && <Badge variant={LAYER_VARIANT[ev.event_layer] ?? 'default'}>{ev.event_layer}</Badge>}
-                            {ev.outcome && <Badge variant={OUTCOME_VARIANT[ev.outcome] ?? 'default'}>{ev.outcome}</Badge>}
-                          </div>
-
-                          {/* Meta row */}
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                            {ev.duration_minutes != null && <span>{ev.duration_minutes} min</span>}
-                            {ev.project && <span>Project: {ev.project}</span>}
-                          </div>
-
-                          {/* Timestamps */}
-                          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-[11px] text-muted-foreground/70">
-                            <span title="Event time">Occurred: {formatTime(ev.started_at)}</span>
-                            <span title="Created">Created: {formatTime(ev.created_at)}</span>
-                            {ev.updated_at && ev.updated_at !== ev.created_at && (
-                              <span title="Last modified">Modified: {formatTime(ev.updated_at)}</span>
-                            )}
-                          </div>
-
-                          {/* Tags */}
-                          {Array.isArray(ev.tags) && ev.tags.length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              {ev.tags.map((tag: string) => (
-                                <span key={tag} className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">{tag}</span>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* Content preview */}
-                          {ev.content && (
-                            <p className="mt-2 text-sm text-muted-foreground line-clamp-2">{ev.content}</p>
-                          )}
-
-                          {/* History panel */}
-                          {showHistory && (
-                            <div className="mt-3 rounded-lg border bg-secondary/30 p-3">
-                              <h4 className="mb-2 text-xs font-semibold text-muted-foreground">Modification History</h4>
-                              {historyLoading ? (
-                                <p className="text-xs text-muted-foreground">Loading...</p>
-                              ) : historyData.length === 0 ? (
-                                <p className="text-xs text-muted-foreground">No modifications recorded.</p>
-                              ) : (
-                                <ul className="space-y-2">
-                                  {historyData.map((rev: any) => (
-                                    <li key={rev.id} className="text-xs">
-                                      <div className="flex items-center gap-2 text-muted-foreground">
-                                        <span>{formatTime(rev.revised_at)}</span>
-                                        <span className="text-foreground">{rev.summary}</span>
-                                      </div>
-                                      <div className="mt-1 ml-4 space-y-0.5">
-                                        {Object.entries(rev.changes).map(([field, diff]: [string, any]) => (
-                                          <div key={field} className="flex gap-1 text-muted-foreground">
-                                            <span className="font-medium text-foreground">{field}:</span>
-                                            <span className="line-through opacity-60">{String(diff.old ?? '—')}</span>
-                                            <span>→</span>
-                                            <span className="text-green-700 dark:text-green-400">{String(diff.new ?? '—')}</span>
-                                          </div>
+                                {/* Expanded: tags + content */}
+                                {isExpanded && (
+                                  <div className="mt-2 space-y-1.5 pl-1">
+                                    {Array.isArray(ev.tags) && ev.tags.length > 0 && (
+                                      <div className="flex flex-wrap gap-1">
+                                        {ev.tags.map((tag: string) => (
+                                          <span key={tag} className="rounded-full bg-secondary px-2 py-0.5 text-[10px] text-secondary-foreground">{tag}</span>
                                         ))}
                                       </div>
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
+                                    )}
+                                    {ev.content && (
+                                      <p className="text-xs text-muted-foreground whitespace-pre-wrap">{ev.content}</p>
+                                    )}
+                                    <div className="flex gap-3 text-[10px] text-muted-foreground/60">
+                                      <span>Created: {formatTime(ev.created_at)}</span>
+                                      {ev.updated_at && ev.updated_at !== ev.created_at && (
+                                        <span>Modified: {formatTime(ev.updated_at)}</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* History panel */}
+                                {showHistory && (
+                                  <div className="mt-2 rounded-md border bg-secondary/30 p-2.5">
+                                    <h4 className="mb-1.5 text-[10px] font-semibold text-muted-foreground">Modification History</h4>
+                                    {historyLoading ? (
+                                      <p className="text-[10px] text-muted-foreground">Loading...</p>
+                                    ) : historyData.length === 0 ? (
+                                      <p className="text-[10px] text-muted-foreground">No modifications recorded.</p>
+                                    ) : (
+                                      <ul className="space-y-1.5">
+                                        {historyData.map((rev: any) => (
+                                          <li key={rev.id} className="text-[10px]">
+                                            <div className="flex items-center gap-1.5 text-muted-foreground">
+                                              <span>{formatTime(rev.revised_at)}</span>
+                                              <span className="text-foreground">{rev.summary}</span>
+                                            </div>
+                                            <div className="mt-0.5 ml-3 space-y-0.5">
+                                              {Object.entries(rev.changes).map(([field, diff]: [string, any]) => (
+                                                <div key={field} className="flex gap-1 text-muted-foreground">
+                                                  <span className="font-medium text-foreground">{field}:</span>
+                                                  <span className="line-through opacity-60">{String(diff.old ?? '—')}</span>
+                                                  <span>→</span>
+                                                  <span className="text-green-700 dark:text-green-400">{String(diff.new ?? '—')}</span>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </CardContent>
         </Card>

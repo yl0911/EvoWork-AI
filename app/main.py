@@ -25,8 +25,10 @@ from app.modules.collectors.router import router as collectors_router
 from app.migrations.migrate_phase2 import migrate as run_phase2_migration
 from app.migrations.migrate_phase3 import migrate as run_phase3_migration
 from app.migrations.migrate_phase4 import migrate as run_phase4_migration
+from app.migrations.migrate_phase5 import migrate as run_phase5_migration
 from app.services.bootstrap import seed_demo_data
 from app.services.indexing import reindex_all
+from app.services.system_skills import seed_system_skills
 
 
 @asynccontextmanager
@@ -35,10 +37,12 @@ async def lifespan(app: FastAPI):
     run_phase2_migration(settings.database_url)
     run_phase3_migration(settings.database_url)
     run_phase4_migration(settings.database_url)
+    run_phase5_migration(settings.database_url)
     db_gw = get_db_gateway()
     db_gw.init_db()
     with db_gw.get_session_context() as db:
         seed_demo_data(db)
+        seed_system_skills(db)
         # 启动时重建向量索引（确保现有数据可被搜索）
         from sqlalchemy import select
         from app.models import Skill, WorkEvent

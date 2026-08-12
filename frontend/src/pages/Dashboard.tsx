@@ -2,16 +2,13 @@ import { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Cell, PieChart, Pie, AreaChart, Area,
 } from 'recharts';
-import { Activity, Clock, Brain, Repeat } from 'lucide-react';
+import {
+  Activity, Clock, Brain, Terminal, CalendarDays,
+  ArrowUpRight, ArrowDownRight, Target,
+} from 'lucide-react';
 import { api } from '@/lib/api';
 
 type Period = 'week' | 'month' | 'year';
@@ -20,32 +17,72 @@ interface DashboardProps {
   period: Period;
 }
 
-const PRIMARY_COLOR = 'hsl(262, 83%, 58%)';
-const BAR_COLORS = [
-  'hsl(262, 83%, 58%)',
-  'hsl(262, 83%, 68%)',
-  'hsl(262, 83%, 78%)',
-  'hsl(262, 60%, 65%)',
-  'hsl(262, 50%, 72%)',
-  'hsl(262, 40%, 78%)',
+const PRIMARY = 'hsl(262, 83%, 58%)';
+
+const PIE_COLORS = [
+  'hsl(262, 83%, 58%)', 'hsl(200, 80%, 55%)', 'hsl(142, 60%, 45%)',
+  'hsl(38, 90%, 55%)',  'hsl(350, 75%, 55%)', 'hsl(280, 60%, 65%)',
+  'hsl(170, 60%, 45%)', 'hsl(20, 80%, 55%)',
 ];
+
+const BAR_COLORS = [
+  'hsl(262, 83%, 58%)', 'hsl(262, 83%, 68%)', 'hsl(262, 83%, 78%)',
+  'hsl(262, 60%, 65%)', 'hsl(262, 50%, 72%)', 'hsl(262, 40%, 78%)',
+];
+
+/* ── helpers ────────────────────────────────────────────────────── */
+
+const toChartData = (dict: Record<string, number> | undefined) =>
+  dict ? Object.entries(dict).map(([name, value]) => ({ name, value })) : [];
+
+function fmtDate(iso: string): string {
+  const [, m, d] = iso.split('-');
+  return `${parseInt(m)}/${parseInt(d)}`;
+}
+
+function fmtDelta(cur: number, prev: number): { text: string; positive: boolean } {
+  if (prev === 0) return cur > 0 ? { text: '+new', positive: true } : { text: '—', positive: true };
+  const pct = Math.round(((cur - prev) / prev) * 100);
+  return {
+    text: pct >= 0 ? `+${pct}%` : `${pct}%`,
+    positive: pct >= 0,
+  };
+}
+
+/* ── component ──────────────────────────────────────────────────── */
 
 export default function Dashboard({ period }: DashboardProps) {
   const [insights, setInsights] = useState<any>(null);
-  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [shell, setShell] = useState<any>(null);
+  const [patterns, setPatterns] = useState<any>(null);
+  const [prevInsights, setPrevInsights] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
     async function fetchData() {
-      setInsightsLoading(true);
+      setLoading(true);
       try {
-        const data = await api.insightsSummary(period);
-        if (!cancelled) setInsights(data);
+        const [ins, sh, pat, prev] = await Promise.all([
+          api.insightsSummary(period),
+          api.shellAnalysis(period).catch(() => null),
+          api.workPatterns(period).catch(() => null),
+          // "上一周期"：用同长度时间窗口，但这里简化为同 period 对比
+          // 实际可用 month 数据截取前/后半月；这里仅拉取同周期作参照
+          api.insightsSummary(period === 'week' ? 'month' : period === 'month' ? 'year' : 'year')
+            .catch(() => null),
+        ]);
+        if (!cancelled) {
+          setInsights(ins);
+          setShell(sh);
+          setPatterns(pat);
+          setPrevInsights(prev);
+        }
       } catch (err) {
-        console.error('Failed to fetch insights summary:', err);
+        console.error('Dashboard fetch error:', err);
       } finally {
-        if (!cancelled) setInsightsLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
@@ -53,25 +90,44 @@ export default function Dashboard({ period }: DashboardProps) {
     return () => { cancelled = true; };
   }, [period]);
 
-  // API 返回 snake_case，前端做映射转换
-  const totalEvents = insights?.total_events ?? 0;
-  const totalMinutes = insights?.total_minutes ?? 0;
-  const skillCount = insights?.skill_count ?? 0;
-  const repeatedTagsCount = (insights?.repeated_tags ?? []).length;
+  /* ── derive metrics ── */
+  const totalEvents   = insights?.total_events   ?? 0;
+  const totalMinutes  = insights?.total_minutes  ?? 0;
+  const skillCount    = insights?.skill_count    ?? 0;
+  const activeDays    = patterns?.active_days    ?? 0;
+  const projSwitches  = patterns?.project_switches ?? 0;
 
-  // dict → [{name, value}] 格式供 Recharts 使用
-  const toChartData = (dict: Record<string, number> | undefined) =>
-    dict ? Object.entries(dict).map(([name, value]) => ({ name, value })) : [];
+  /* ── delta vs broader period ── */
+  const prevEvents  = prevInsights?.total_events  ?? 0;
+  const prevMinutes = prevInsights?.total_minutes ?? 0;
+  const evDelta     = fmtDelta(totalEvents, prevEvents);
+  const minDelta    = fmtDelta(totalMinutes, prevMinutes);
 
-  const eventTypeData = toChartData(insights?.event_type_minutes);
-  const sourceData = toChartData(insights?.source_minutes);
-  const dailyTimeData = toChartData(insights?.daily_minutes);
-  const insightNotes = insights?.insight_notes ?? [];
+  /* ── chart data ── */
+  const sourceData     = toChartData(insights?.source_minutes);
+  const eventTypeData  = toChartData(insights?.event_type_minutes);
+  const projectData    = toChartData(insights?.project_minutes).slice(0, 8);
+  const dailyTimeData  = toChartData(insights?.daily_minutes).map(d => ({ ...d, label: fmtDate(d.name) }));
+  const hourlyData     = toChartData(patterns?.hourly_distribution).map(d => ({ name: `${d.name}:00`, value: d.value }));
+
+  /* ── shell stats ── */
+  const shellTotal  = shell?.total_commands ?? 0;
+  const shellError  = shell?.error_rate     ?? 0;
+  const shellTop    = (shell?.top_commands ?? []).slice(0, 5);
+
+  /* ── outcome ── */
+  const outcomes = insights?.outcomes ?? {};
+  const resolved = outcomes.resolved ?? 0;
+  const totalOutcomes = Object.values(outcomes).reduce((a: number, b: any) => a + (b as number), 0);
+  const resolveRate = totalOutcomes > 0 ? Math.round((resolved / totalOutcomes) * 100) : 0;
+
+  const periodLabel: Record<string, string> = { week: '本周', month: '本月', year: '今年' };
+  const prevLabel: Record<string, string>   = { week: 'vs 本月', month: 'vs 今年', year: '' };
 
   return (
     <div className="space-y-6 p-6">
-      {/* Top metrics row */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* ─── Row 1: KPI cards ─── */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Total Events</CardTitle>
@@ -79,6 +135,12 @@ export default function Dashboard({ period }: DashboardProps) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totalEvents}</div>
+            {prevInsights && (
+              <p className={`mt-1 flex items-center text-xs ${evDelta.positive ? 'text-green-600' : 'text-red-500'}`}>
+                {evDelta.positive ? <ArrowUpRight className="mr-0.5 h-3 w-3" /> : <ArrowDownRight className="mr-0.5 h-3 w-3" />}
+                {evDelta.text} {prevLabel[period]}
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -89,12 +151,18 @@ export default function Dashboard({ period }: DashboardProps) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totalMinutes}</div>
+            {prevInsights && (
+              <p className={`mt-1 flex items-center text-xs ${minDelta.positive ? 'text-green-600' : 'text-red-500'}`}>
+                {minDelta.positive ? <ArrowUpRight className="mr-0.5 h-3 w-3" /> : <ArrowDownRight className="mr-0.5 h-3 w-3" />}
+                {minDelta.text} {prevLabel[period]}
+              </p>
+            )}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Skill Count</CardTitle>
+            <CardTitle className="text-sm font-medium">Skills</CardTitle>
             <Brain className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -104,120 +172,269 @@ export default function Dashboard({ period }: DashboardProps) {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Repeated Tags</CardTitle>
-            <Repeat className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Active Days</CardTitle>
+            <CalendarDays className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{repeatedTagsCount}</div>
+            <div className="text-2xl font-bold">{activeDays}</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {projSwitches} project switches
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Charts row: event type + source distribution */}
+      {/* ─── Row 2: Daily trend (full width) ─── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Daily Time Trend</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {dailyTimeData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={240}>
+              <AreaChart data={dailyTimeData} margin={{ left: 10, right: 20, top: 5, bottom: 5 }}>
+                <defs>
+                  <linearGradient id="gradPurple" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={PRIMARY} stopOpacity={0.3} />
+                    <stop offset="95%" stopColor={PRIMARY} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip />
+                <Area type="monotone" dataKey="value" stroke={PRIMARY} fill="url(#gradPurple)" strokeWidth={2} name="minutes" />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
+              {loading ? 'Loading...' : 'No data available'}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ─── Row 3: Source pie + Project ranking ─── */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Event type distribution */}
+        {/* Source pie */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Source Distribution</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col items-center gap-4 sm:flex-row">
+            {sourceData.length > 0 ? (
+              <>
+                <ResponsiveContainer width={200} height={200}>
+                  <PieChart>
+                    <Pie
+                      data={sourceData}
+                      cx="50%" cy="50%"
+                      outerRadius={85}
+                      dataKey="value"
+                    >
+                      {sourceData.map((_, i) => (
+                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="flex flex-wrap gap-2">
+                  {sourceData.map((d, i) => (
+                    <Badge key={d.name} variant="outline" className="gap-1">
+                      <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
+                      {d.name} <span className="text-muted-foreground">{d.value}m</span>
+                    </Badge>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="flex h-48 w-full items-center justify-center text-sm text-muted-foreground">
+                {loading ? 'Loading...' : 'No data available'}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Project ranking */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Project Ranking</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {projectData.length > 0 ? (
+              <div className="space-y-2.5">
+                {projectData.map((p, i) => {
+                  const maxVal = projectData[0].value || 1;
+                  return (
+                    <div key={p.name} className="flex items-center gap-3">
+                      <span className="w-5 text-right text-xs font-medium text-muted-foreground">
+                        {i + 1}
+                      </span>
+                      <div className="flex-1">
+                        <div className="mb-0.5 flex items-center justify-between text-sm">
+                          <span className="truncate">{p.name}</span>
+                          <span className="ml-2 shrink-0 text-muted-foreground">{p.value}m</span>
+                        </div>
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                          <div
+                            className="h-full rounded-full"
+                            style={{
+                              width: `${(p.value / maxVal) * 100}%`,
+                              backgroundColor: BAR_COLORS[i % BAR_COLORS.length],
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
+                {loading ? 'Loading...' : 'No data available'}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ─── Row 4: Event type + Hourly distribution ─── */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Event type bar */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Event Type Distribution</CardTitle>
           </CardHeader>
           <CardContent>
             {eventTypeData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={Math.max(200, eventTypeData.length * 40)}>
+              <ResponsiveContainer width="100%" height={Math.max(200, eventTypeData.length * 36)}>
                 <BarChart data={eventTypeData} layout="vertical" margin={{ left: 80, right: 20, top: 5, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                   <XAxis type="number" />
                   <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={80} />
                   <Tooltip />
                   <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                    {eventTypeData.map((_: any, index: number) => (
-                      <Cell key={index} fill={BAR_COLORS[index % BAR_COLORS.length]} />
+                    {eventTypeData.map((_, i) => (
+                      <Cell key={i} fill={BAR_COLORS[i % BAR_COLORS.length]} />
                     ))}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
             ) : (
               <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-                {insightsLoading ? 'Loading...' : 'No data available'}
+                {loading ? 'Loading...' : 'No data available'}
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* Source distribution */}
+        {/* Hourly distribution */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Source Distribution</CardTitle>
+            <CardTitle className="text-base">Hourly Activity</CardTitle>
           </CardHeader>
           <CardContent>
-            {sourceData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={Math.max(200, sourceData.length * 40)}>
-                <BarChart data={sourceData} layout="vertical" margin={{ left: 80, right: 20, top: 5, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                  <XAxis type="number" />
-                  <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={80} />
+            {hourlyData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={hourlyData} margin={{ left: 10, right: 10, top: 10, bottom: 5 }} barSize={36}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} />
+                  <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
                   <Tooltip />
-                  <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                    {sourceData.map((_: any, index: number) => (
-                      <Cell key={index} fill={BAR_COLORS[index % BAR_COLORS.length]} />
-                    ))}
-                  </Bar>
+                  <Bar dataKey="value" fill={PRIMARY} radius={[4, 4, 0, 0]} name="events" />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
               <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-                {insightsLoading ? 'Loading...' : 'No data available'}
+                {loading ? 'Loading...' : 'No data available'}
               </div>
             )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Daily time distribution */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Daily Time Distribution</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {dailyTimeData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={dailyTimeData} margin={{ left: 20, right: 20, top: 5, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Bar dataKey="value" fill={PRIMARY_COLOR} radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-              {insightsLoading ? 'Loading...' : 'No data available'}
+      {/* ─── Row 5: Shell stats + Insight notes ─── */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Shell stats */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Terminal className="h-4 w-4 text-primary" />
+              <CardTitle className="text-base">Shell Activity</CardTitle>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent>
+            {shellTotal > 0 ? (
+              <div className="space-y-4">
+                {/* KPI row */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-lg bg-secondary/50 p-2 text-center">
+                    <p className="text-lg font-bold">{shellTotal}</p>
+                    <p className="text-[11px] text-muted-foreground">Commands</p>
+                  </div>
+                  <div className="rounded-lg bg-secondary/50 p-2 text-center">
+                    <p className={`text-lg font-bold ${shellError > 10 ? 'text-red-500' : 'text-green-600'}`}>
+                      {shellError}%
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">Error Rate</p>
+                  </div>
+                  <div className="rounded-lg bg-secondary/50 p-2 text-center">
+                    <p className="text-lg font-bold">{resolveRate}%</p>
+                    <p className="text-[11px] text-muted-foreground">Resolve Rate</p>
+                  </div>
+                </div>
+                {/* Top commands */}
+                {shellTop.length > 0 && (
+                  <div>
+                    <p className="mb-1.5 text-xs font-medium text-muted-foreground">Top Commands</p>
+                    <div className="space-y-1">
+                      {shellTop.map((cmd: any, i: number) => (
+                        <div key={i} className="flex items-center justify-between text-sm">
+                          <code className="max-w-[200px] truncate rounded bg-secondary px-1.5 py-0.5 text-xs">
+                            {cmd.command}
+                          </code>
+                          <span className="text-xs text-muted-foreground">{cmd.count}x</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+                {loading ? 'Loading...' : 'No shell data'}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-      {/* Insight notes */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Insight Notes</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {insightNotes.length > 0 ? (
-            <ul className="space-y-2">
-              {insightNotes.map((note: string, index: number) => (
-                <li key={index} className="flex items-start gap-2 text-sm">
-                  <Badge variant="secondary" className="mt-0.5 shrink-0">{index + 1}</Badge>
-                  <span>{note}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="text-sm text-muted-foreground">
-              {insightsLoading ? 'Loading...' : 'No insight notes available'}
+        {/* Insight notes */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Target className="h-4 w-4 text-primary" />
+              <CardTitle className="text-base">Insight Notes</CardTitle>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent>
+            {(insights?.insight_notes ?? []).length > 0 ? (
+              <ul className="space-y-2">
+                {insights.insight_notes.map((note: string, i: number) => (
+                  <li key={i} className="flex items-start gap-2 text-sm">
+                    <Badge variant="secondary" className="mt-0.5 shrink-0">{i + 1}</Badge>
+                    <span>{note}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+                {loading ? 'Loading...' : 'No insight notes'}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

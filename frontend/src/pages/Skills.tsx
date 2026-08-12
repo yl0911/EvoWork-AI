@@ -4,11 +4,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Trash2, Plus, BookOpen, Lightbulb, Recycle, Globe } from 'lucide-react';
+import { Trash2, Plus, BookOpen, Lightbulb, Recycle, Globe, Settings } from 'lucide-react';
 import { api } from '@/lib/api';
 
 type SkillCategory = 'thinking' | 'reusable' | 'open_source';
-type SkillSource = 'user_generated' | 'ai_generated' | 'open_source' | 'mined';
+type SkillSource = 'user_generated' | 'ai_generated' | 'open_source' | 'mined' | 'system';
 
 interface Skill {
   id: string;
@@ -24,6 +24,8 @@ interface Skill {
   agent_assistable?: boolean;
   usage_count: number;
   avg_effectiveness: number;
+  system_skill?: boolean;
+  enabled?: boolean;
   created_at?: string;
 }
 
@@ -64,6 +66,7 @@ const categoryTabs = [
   { value: 'thinking', label: 'Thinking' },
   { value: 'reusable', label: 'Reusable' },
   { value: 'open_source', label: 'Open Source' },
+  { value: 'system', label: 'System' },
 ];
 
 export default function Skills() {
@@ -76,8 +79,13 @@ export default function Skills() {
   const fetchSkills = useCallback(async () => {
     try {
       setLoading(true);
-      const category = activeTab === 'all' ? undefined : activeTab;
-      const data = await api.listSkills(category);
+      let data: any[];
+      if (activeTab === 'system') {
+        data = await api.listSkills(undefined, true);
+      } else {
+        const category = activeTab === 'all' ? undefined : activeTab;
+        data = await api.listSkills(category, false);
+      }
       setSkills(data);
     } catch (err) {
       console.error('Failed to fetch skills:', err);
@@ -89,6 +97,15 @@ export default function Skills() {
   useEffect(() => {
     fetchSkills();
   }, [fetchSkills]);
+
+  const handleToggle = async (id: string) => {
+    try {
+      const updated = await api.toggleSkill(id);
+      setSkills((prev) => prev.map((s) => (s.id === id ? { ...s, enabled: updated.enabled } : s)));
+    } catch (err) {
+      console.error('Failed to toggle skill:', err);
+    }
+  };
 
   const updateField = <K extends keyof SkillForm>(key: K, value: SkillForm[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -141,10 +158,6 @@ export default function Skills() {
       console.error('Failed to delete skill:', err);
     }
   };
-
-  const filteredSkills = activeTab === 'all'
-    ? skills
-    : skills.filter((s) => s.category === activeTab);
 
   return (
     <div className="min-h-screen p-6 bg-background">
@@ -312,49 +325,89 @@ export default function Skills() {
                 <div className="py-12 text-center text-sm text-muted-foreground">
                   Loading skills...
                 </div>
-              ) : filteredSkills.length === 0 ? (
+              ) : skills.length === 0 ? (
                 <div className="py-12 text-center text-sm text-muted-foreground">
                   No skills found.
                 </div>
               ) : (
                 <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
-                  {filteredSkills.map((skill) => {
+                  {skills.map((skill) => {
+                    const isSystem = !!skill.system_skill;
                     const badge = categoryBadgeMap[skill.category];
                     const Icon = badge.icon;
                     return (
-                      <Card key={skill.id}>
+                      <Card
+                        key={skill.id}
+                        className={isSystem && !skill.enabled ? 'opacity-50' : ''}
+                      >
                         <CardContent className="p-4">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0 flex-1">
-                              <div className="mb-1.5 flex items-center gap-2">
+                              <div className="mb-1.5 flex items-center gap-2 flex-wrap">
                                 <span className="font-medium truncate">{skill.name}</span>
-                                <Badge variant={badge.variant} className="gap-1 shrink-0">
-                                  <Icon className="h-3 w-3" />
-                                  {badge.label}
-                                </Badge>
+                                {isSystem && (
+                                  <Badge variant="outline" className="shrink-0 border-blue-400 text-blue-600 text-[10px] px-1.5">
+                                    <Settings className="h-3 w-3 mr-0.5" />
+                                    System
+                                  </Badge>
+                                )}
+                                {!isSystem && badge && (
+                                  <Badge variant={badge.variant} className="gap-1 shrink-0">
+                                    <Icon className="h-3 w-3" />
+                                    {badge.label}
+                                  </Badge>
+                                )}
+                                {isSystem && (
+                                  <Badge
+                                    variant={skill.enabled ? 'default' : 'secondary'}
+                                    className="text-[10px] px-1.5 shrink-0"
+                                  >
+                                    {skill.enabled ? 'Active' : 'Disabled'}
+                                  </Badge>
+                                )}
                               </div>
                               <p className="text-sm text-muted-foreground line-clamp-2 mb-2">
-                                {skill.trigger}
+                                {isSystem ? (skill.content || skill.trigger) : skill.trigger}
                               </p>
                               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                                <span>{skill.steps?.length ?? 0} steps</span>
+                                {!isSystem && <span>{skill.steps?.length ?? 0} steps</span>}
                                 <span>Used {skill.usage_count ?? 0} times</span>
-                                <span>
-                                  Effectiveness:{' '}
-                                  {skill.avg_effectiveness != null
-                                    ? `${Math.round(skill.avg_effectiveness * 100)}%`
-                                    : 'N/A'}
-                                </span>
+                                {!isSystem && (
+                                  <span>
+                                    Effectiveness:{' '}
+                                    {skill.avg_effectiveness != null
+                                      ? `${Math.round(skill.avg_effectiveness * 100)}%`
+                                      : 'N/A'}
+                                  </span>
+                                )}
                               </div>
                             </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDelete(skill.id)}
-                              className="shrink-0 text-muted-foreground hover:text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {isSystem ? (
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={!!skill.enabled}
+                                onClick={() => handleToggle(skill.id)}
+                                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                                  skill.enabled ? 'bg-primary' : 'bg-muted-foreground/30'
+                                }`}
+                              >
+                                <span
+                                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-background shadow-lg ring-0 transition duration-200 ease-in-out ${
+                                    skill.enabled ? 'translate-x-5' : 'translate-x-0'
+                                  }`}
+                                />
+                              </button>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDelete(skill.id)}
+                                className="shrink-0 text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </CardContent>
                       </Card>

@@ -18,10 +18,13 @@ router = APIRouter(tags=["skills"])
 def list_skills(
     db: Session = Depends(get_db),
     category: str | None = None,
+    system: bool | None = None,
 ) -> list[Skill]:
     stmt = select(Skill)
     if category:
         stmt = stmt.where(Skill.category == category)
+    if system is not None:
+        stmt = stmt.where(Skill.system_skill == system)
     stmt = stmt.order_by(desc(Skill.updated_at))
     return list(db.execute(stmt).scalars())
 
@@ -104,3 +107,15 @@ def record_skill_use(
         "usage_count": skill.usage_count,
         "avg_effectiveness": skill.avg_effectiveness,
     }
+
+
+@router.patch("/skills/{skill_id}/toggle", response_model=SkillRead)
+def toggle_skill(skill_id: str, db: Session = Depends(get_db)) -> Skill:
+    """切换 Skill 的启用/禁用状态。"""
+    skill = db.get(Skill, skill_id)
+    if skill is None:
+        raise HTTPException(status_code=404, detail="skill not found")
+    skill.enabled = not skill.enabled
+    db.commit()
+    db.refresh(skill)
+    return skill

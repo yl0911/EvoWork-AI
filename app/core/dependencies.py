@@ -30,7 +30,7 @@ def get_vector_gateway() -> BaseVectorGateway:
     return ChromaVectorGateway()
 
 
-@lru_cache
 def get_analytics_engine() -> AnalyticsEngine:
+    """每次请求创建新的 AnalyticsEngine，避免并发请求共享 DuckDB 连接。"""
     from app.core.config import settings
     return AnalyticsEngine(settings.database_url)

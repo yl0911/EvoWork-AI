@@ -92,3 +92,61 @@ class OpenAICompatGateway(BaseLLMGateway):
             provider=self._provider,
             model=self._model,
         )
+
+    def chat_stream(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float = 0.7,
+    ):
+        """流式对话：yield 每个 content token。"""
+        if not self.configured:
+            raise LLMGatewayError(
+                "LLM is not configured. Please set LLM_BASE_URL, LLM_API_KEY, and LLM_MODEL."
+            )
+
+        payload = {
+            "model": self._model,
+            "temperature": temperature,
+            "messages": messages,
+            "stream": True,
+        }
+        body = json.dumps(payload).encode("utf-8")
+        http_request = request.Request(
+            f"{self._base_url}/chat/completions",
+            data=body,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {self._api_key}",
+                "Content-Type": "application/json",
+            },
+        )
+
+        try:
+            response = request.urlopen(http_request, timeout=120)
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise LLMGatewayError(f"LLM HTTP {exc.code}: {detail}") from exc
+        except error.URLError as exc:
+            raise LLMGatewayError(f"LLM connection failed: {exc.reason}") from exc
+        except TimeoutError as exc:
+            raise LLMGatewayError("LLM request timed out.") from exc
+
+        try:
+            for line in response:
+                line = line.decode("utf-8").strip()
+                if not line or not line.startswith("data: "):
+                    continue
+                data = line[6:]
+                if data == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data)
+                    delta = (chunk.get("choices") or [{}])[0].get("delta", {})
+                    content = delta.get("content", "")
+                    if content:
+                        yield content
+                except (json.JSONDecodeError, IndexError, KeyError):
+                    continue
+        finally:
+            response.close()
