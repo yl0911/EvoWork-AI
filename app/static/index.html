@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EvoWork AI</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/static/styles.css?v=20260812-ai-cache" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">E</span>
+          <div>
+            <strong>EvoWork AI</strong>
+            <small>智行</small>
+          </div>
+        </div>
+        <nav class="nav-tabs" aria-label="主导航">
+          <button class="nav-tab active" data-view="dashboard">概览</button>
+          <button class="nav-tab" data-view="events">事件</button>
+          <button class="nav-tab" data-view="skills">Skill</button>
+          <button class="nav-tab" data-view="config">连接</button>
+        </nav>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <h1 id="view-title">工作概览</h1>
+            <p id="view-subtitle">WorkEvent / Insight / Skill</p>
+          </div>
+          <div class="period-control" role="group" aria-label="统计周期">
+            <button class="period-button active" data-period="week">周</button>
+            <button class="period-button" data-period="month">月</button>
+            <button class="period-button" data-period="year">年</button>
+          </div>
+        </header>
+
+        <section id="dashboard" class="view active">
+          <div class="metric-grid">
+            <article class="metric-card">
+              <span>事件</span>
+              <strong id="metric-events">0</strong>
+            </article>
+            <article class="metric-card accent-green">
+              <span>记录时长</span>
+              <strong id="metric-minutes">0m</strong>
+            </article>
+            <article class="metric-card accent-orange">
+              <span>Skill</span>
+              <strong id="metric-skills">0</strong>
+            </article>
+            <article class="metric-card accent-blue">
+              <span>重复主题</span>
+              <strong id="metric-tags">0</strong>
+            </article>
+          </div>
+
+          <div class="dashboard-grid">
+            <section class="tool-panel">
+              <div class="panel-head">
+                <h2>事件类型</h2>
+              </div>
+              <div id="type-bars" class="bar-list"></div>
+            </section>
+            <section class="tool-panel">
+              <div class="panel-head">
+                <h2>来源分布</h2>
+              </div>
+              <div id="source-bars" class="bar-list"></div>
+            </section>
+            <section class="tool-panel wide">
+              <div class="panel-head">
+                <h2>近期节奏</h2>
+              </div>
+              <div id="daily-bars" class="daily-bars"></div>
+            </section>
+            <section class="tool-panel">
+              <div class="panel-head">
+                <h2>洞察</h2>
+              </div>
+              <div id="insight-notes" class="note-list"></div>
+            </section>
+            <section class="tool-panel">
+              <div class="panel-head">
+                <h2>AI 辅助</h2>
+              </div>
+              <div class="ai-actions">
+                <button id="generate-review" class="primary-button" type="button">生成复盘</button>
+                <button id="generate-skill-draft" class="ghost-button" type="button">生成 Skill 草稿</button>
+              </div>
+              <div class="ai-toolbar">
+                <span id="ai-cache-state">未生成</span>
+                <button id="regenerate-ai" class="ghost-button small-button" type="button" disabled>重新生成</button>
+              </div>
+              <div id="ai-output" class="ai-output">点击上方按钮生成复盘或 Skill 草稿。</div>
+            </section>
+          </div>
+        </section>
+
+        <section id="events" class="view">
+          <div class="split-view">
+            <section class="tool-panel form-panel">
+              <div class="panel-head">
+                <h2>新增事件</h2>
+              </div>
+              <form id="event-form" class="stack-form">
+                <label>
+                  <span>标题</span>
+                  <input name="title" required maxlength="200" placeholder="排查 CUDA 环境问题" />
+                </label>
+                <div class="form-row">
+                  <label>
+                    <span>类型</span>
+                    <select name="event_type">
+                      <option value="search">检索</option>
+                      <option value="debug">排查</option>
+                      <option value="coding">编码</option>
+                      <option value="reading">阅读</option>
+                      <option value="planning">规划</option>
+                      <option value="summary">总结</option>
+                      <option value="note">记录</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>来源</span>
+                    <select name="source">
+                      <option value="manual">手动</option>
+                      <option value="browser">浏览器</option>
+                      <option value="ide">IDE</option>
+                      <option value="git">Git</option>
+                      <option value="ai_chat">AI 对话</option>
+                      <option value="document">文档</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>
+                    <span>项目</span>
+                    <input name="project" placeholder="EvoWork AI" />
+                  </label>
+                  <label>
+                    <span>时长</span>
+                    <input name="duration_minutes" type="number" min="0" value="30" />
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>
+                    <span>结果</span>
+                    <select name="outcome">
+                      <option value="resolved">已解决</option>
+                      <option value="partial">部分推进</option>
+                      <option value="unresolved">未解决</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>隐私</span>
+                    <select name="privacy_level">
+                      <option value="metadata">只记录元数据</option>
+                      <option value="content">允许内容分析</option>
+                      <option value="private">私密</option>
+                    </select>
+                  </label>
+                </div>
+                <label>
+                  <span>标签</span>
+                  <input name="tags" placeholder="cuda, python, debug" />
+                </label>
+                <label>
+                  <span>内容</span>
+                  <textarea name="content" rows="4" placeholder="记录问题、参考资料、解决思路或结果"></textarea>
+                </label>
+                <button class="primary-button" type="submit">添加事件</button>
+              </form>
+            </section>
+            <section class="tool-panel list-panel">
+              <div class="panel-head">
+                <h2>时间线</h2>
+                <button id="refresh-events" class="ghost-button" type="button">刷新</button>
+              </div>
+              <div id="event-list" class="event-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="skills" class="view">
+          <div class="split-view">
+            <section class="tool-panel form-panel">
+              <div class="panel-head">
+                <h2>新增 Skill</h2>
+              </div>
+              <form id="skill-form" class="stack-form">
+                <label>
+                  <span>名称</span>
+                  <input name="name" required maxlength="160" placeholder="方案设计 Skill" />
+                </label>
+                <div class="form-row">
+                  <label>
+                    <span>分类</span>
+                    <select name="category">
+                      <option value="thinking">思路型</option>
+                      <option value="reusable">可复用型</option>
+                      <option value="open_source">开源区</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>来源</span>
+                    <select name="source">
+                      <option value="user_generated">用户创建</option>
+                      <option value="ai_generated">AI 总结</option>
+                      <option value="open_source">开源整理</option>
+                    </select>
+                  </label>
+                </div>
+                <label>
+                  <span>触发条件</span>
+                  <textarea name="trigger" rows="3" placeholder="什么问题或场景下使用"></textarea>
+                </label>
+                <label>
+                  <span>步骤</span>
+                  <textarea name="steps" rows="5" placeholder="一行一个步骤"></textarea>
+                </label>
+                <label>
+                  <span>说明</span>
+                  <textarea name="content" rows="4" placeholder="方法、参考资料、适用边界或结果判断"></textarea>
+                </label>
+                <button class="primary-button" type="submit">添加 Skill</button>
+              </form>
+            </section>
+            <section class="tool-panel list-panel">
+              <div class="panel-head">
+                <h2>Skill 库</h2>
+                <button id="refresh-skills" class="ghost-button" type="button">刷新</button>
+              </div>
+              <div id="skill-list" class="skill-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="config" class="view">
+          <div class="config-grid">
+            <section class="tool-panel">
+              <div class="panel-head">
+                <h2>LLM</h2>
+              </div>
+              <dl id="llm-config" class="config-list"></dl>
+            </section>
+            <section class="tool-panel">
+              <div class="panel-head">
+                <h2>Database</h2>
+              </div>
+              <dl id="db-config" class="config-list"></dl>
+            </section>
+            <section class="tool-panel">
+              <div class="panel-head">
+                <h2>Vector</h2>
+              </div>
+              <dl id="vector-config" class="config-list"></dl>
+            </section>
+            <section class="tool-panel">
+              <div class="panel-head">
+                <h2>Storage</h2>
+              </div>
+              <dl id="storage-config" class="config-list"></dl>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="/static/app.js?v=20260812-ai-cache"></script>
+  </body>
+</html>

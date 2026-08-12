@@ -1,0 +1,75 @@
+const BASE = '/api';
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    ...options,
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => res.statusText);
+    throw new Error(`API ${res.status}: ${detail}`);
+  }
+  return res.json();
+}
+
+export const api = {
+  // Events
+  listEvents: (params?: { project?: string; event_type?: string; event_layer?: string; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.project) qs.set('project', params.project);
+    if (params?.event_type) qs.set('event_type', params.event_type);
+    if (params?.event_layer) qs.set('event_layer', params.event_layer);
+    if (params?.limit) qs.set('limit', String(params.limit));
+    const q = qs.toString();
+    return request<any[]>(`/events${q ? `?${q}` : ''}`);
+  },
+  createEvent: (data: any) => request<any>('/events', { method: 'POST', body: JSON.stringify(data) }),
+  updateEvent: (id: string, data: any) => request<any>(`/events/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteEvent: (id: string) => request<any>(`/events/${id}`, { method: 'DELETE' }),
+  eventHistory: (id: string) => request<any[]>(`/events/${id}/history`),
+
+  // Skills
+  listSkills: (category?: string) => {
+    const q = category ? `?category=${category}` : '';
+    return request<any[]>(`/skills${q}`);
+  },
+  createSkill: (data: any) => request<any>('/skills', { method: 'POST', body: JSON.stringify(data) }),
+  updateSkill: (id: string, data: any) => request<any>(`/skills/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteSkill: (id: string) => request<any>(`/skills/${id}`, { method: 'DELETE' }),
+  useSkill: (id: string, data: any) => request<any>(`/skills/${id}/use`, { method: 'POST', body: JSON.stringify(data) }),
+
+  // Insights
+  insightsSummary: (period: string) => request<any>(`/insights/summary?period=${period}`),
+
+  // AI
+  periodReview: (period: string, refresh = false) =>
+    request<any>('/ai/period-review', { method: 'POST', body: JSON.stringify({ period, refresh }) }),
+  skillDraft: (period: string, tag?: string, refresh = false) =>
+    request<any>('/ai/skill-draft', { method: 'POST', body: JSON.stringify({ period, tag, refresh }) }),
+
+  // Search
+  search: (q: string, topK = 5, scope?: string) => {
+    const params = new URLSearchParams({ q, top_k: String(topK) });
+    if (scope) params.set('scope', scope);
+    return request<any>(`/search?${params}`);
+  },
+  searchExperience: (problem: string, topK = 5) =>
+    request<any>(`/experience?problem=${encodeURIComponent(problem)}&top_k=${topK}`),
+  reindex: () => request<any>('/search/reindex', { method: 'POST' }),
+
+  // Analytics
+  habitProfile: (period: string) => request<any>(`/analytics/habit?period=${period}`),
+  repeatedProblems: (period: string, threshold = 2) => request<any>(`/analytics/repeated?period=${period}&threshold=${threshold}`),
+  efficiencyMetrics: (period: string) => request<any>(`/analytics/efficiency?period=${period}`),
+  fullAnalysis: (period: string) => request<any>(`/analytics/full?period=${period}`),
+
+  // System
+  health: () => request<any>('/health'),
+  config: () => request<any>('/config'),
+  llmHealth: () => request<any>('/llm/health'),
+  dbHealth: () => request<any>('/health/db'),
+  vectorHealth: () => request<any>('/health/vector'),
+
+  // Collectors
+  collectorStatus: () => request<any>('/collect/status'),
+};

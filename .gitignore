@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.Python
+.env
+.venv/
+env/
+venv/
+node_modules/
+dist/
+build/
+data/*.db
+data/*.db-*
+data/chroma/
+logs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
