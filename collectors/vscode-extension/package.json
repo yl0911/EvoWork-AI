@@ -2,7 +2,7 @@
   "name": "evowork-ide-tracker",
   "displayName": "EvoWork IDE Tracker",
   "description": "Track coding activity and send to EvoWork AI for work pattern analysis",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "evowork",
   "engines": {
     "vscode": "^1.80.0"
@@ -34,6 +34,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable/disable activity tracking"
+        },
+        "evowork.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for server authentication (leave empty if not required)"
         }
       }
     },

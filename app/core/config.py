@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     storage_type: str = "local"
     storage_path: str = "./data/files"
 
+    # Collector Security
+    collector_api_key: str = ""  # empty = no auth required (backward compatible)
+    collector_max_batch_size: int = 500  # max events per batch request
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

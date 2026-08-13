@@ -12,6 +12,9 @@ interface IdeEvent {
   editor: string;
 }
 
+const BUFFER_KEY = 'evowork.eventBuffer';
+const MAX_BUFFER_SIZE = 500;
+
 let eventBuffer: IdeEvent[] = [];
 let currentFile: {
   filePath: string;
@@ -22,6 +25,30 @@ let currentFile: {
 } | null = null;
 let sendTimer: ReturnType<typeof setInterval> | null = null;
 let statusBarItem: vscode.StatusBarItem;
+let extensionContext: vscode.ExtensionContext | null = null;
+
+// ── Buffer persistence ──────────────────────────────
+
+function saveBuffer() {
+  if (extensionContext) {
+    extensionContext.globalState.update(BUFFER_KEY, eventBuffer);
+  }
+}
+
+function loadBuffer() {
+  if (extensionContext) {
+    eventBuffer = extensionContext.globalState.get<IdeEvent[]>(BUFFER_KEY, []);
+  }
+}
+
+function pushEvent(event: IdeEvent) {
+  eventBuffer.push(event);
+  // Cap buffer size to prevent unbounded growth
+  if (eventBuffer.length > MAX_BUFFER_SIZE) {
+    eventBuffer = eventBuffer.slice(-MAX_BUFFER_SIZE);
+  }
+  saveBuffer();
+}
 
 // ── Tracking ────────────────────────────────────────
 
@@ -55,7 +82,7 @@ function stopTracking() {
   const durationSec = Math.round((Date.now() - currentFile.startTime) / 1000);
 
   if (durationSec >= 5 || currentFile.linesChanged > 0) {
-    eventBuffer.push({
+    pushEvent({
       file_path: currentFile.filePath,
       language: currentFile.language,
       action: currentFile.linesChanged > 0 ? 'save' : 'focus',
@@ -78,7 +105,10 @@ function updateStatusBar() {
     statusBarItem.tooltip = `Tracking: ${currentFile.filePath}`;
     statusBarItem.show();
   } else {
-    statusBarItem.text = `$(pulse) EvoWork: idle`;
+    const bufCount = eventBuffer.length;
+    statusBarItem.text = bufCount > 0
+      ? `$(pulse) EvoWork: idle (${bufCount} pending)`
+      : `$(pulse) EvoWork: idle`;
     statusBarItem.show();
   }
 }
@@ -92,6 +122,7 @@ async function sendBatch() {
 
   const config = vscode.workspace.getConfiguration('evowork');
   const serverUrl = config.get<string>('serverUrl', 'http://localhost:8000');
+  const apiKey = config.get<string>('apiKey', '');
   const enabled = config.get<boolean>('enabled', true);
 
   if (!enabled) {
@@ -100,11 +131,15 @@ async function sendBatch() {
   }
 
   const payload = { source: 'ide', events: eventBuffer };
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (apiKey) {
+    headers['X-API-Key'] = apiKey;
+  }
 
   try {
     const response = await fetch(`${serverUrl}/api/collect/ide`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(payload),
     });
 
@@ -114,6 +149,7 @@ async function sendBatch() {
         `EvoWork: Sent ${result.created} events (${result.skipped} skipped)`
       );
       eventBuffer = [];
+      saveBuffer();
     } else {
       const text = await response.text();
       vscode.window.showWarningMessage(`EvoWork: Send failed (${response.status})`);
@@ -121,13 +157,18 @@ async function sendBatch() {
     }
   } catch (err: any) {
     vscode.window.showWarningMessage(`EvoWork: Connection error — ${err.message}`);
-    // Keep buffer for next retry
+    // Buffer persisted via globalState, will retry next cycle
   }
 }
 
 // ── Extension lifecycle ─────────────────────────────
 
 export function activate(context: vscode.ExtensionContext) {
+  extensionContext = context;
+
+  // Restore buffer from previous session
+  loadBuffer();
+
   // Status bar
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.command = 'evowork.showStatus';
@@ -188,20 +229,28 @@ export function activate(context: vscode.ExtensionContext) {
         ? `Tracking: ${path.basename(currentFile.filePath)} (${currentFile.language})`
         : 'Not tracking any file';
       vscode.window.showInformationMessage(
-        `EvoWork: ${bufSize} events buffered. ${tracking}`
+        `EvoWork: ${bufSize} events buffered (persisted). ${tracking}`
       );
     })
   );
 
   updateStatusBar();
-  console.log('EvoWork IDE Tracker activated');
+
+  const restoredMsg = eventBuffer.length > 0
+    ? ` (restored ${eventBuffer.length} events from previous session)`
+    : '';
+  console.log(`EvoWork IDE Tracker activated${restoredMsg}`);
 }
 
-export function deactivate() {
+export async function deactivate() {
   stopTracking();
   if (sendTimer) clearInterval(sendTimer);
-  // Try to send remaining events
+  // Attempt final flush (await to give the request a chance to complete)
   if (eventBuffer.length > 0) {
-    sendBatch();
+    try {
+      await sendBatch();
+    } catch {
+      // Buffer is persisted, will be sent on next activation
+    }
   }
 }

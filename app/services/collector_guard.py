@@ -14,6 +14,7 @@ from app.models import Skill
 SOURCE_SKILL_MAP: dict[str, str] = {
     "git": "sys_skill_git_collector",
     "shell": "sys_skill_shell_collector",
+    "shell_buffer": "sys_skill_shell_collector",
     "activitywatch": "sys_skill_activitywatch_import",
     "browser": "sys_skill_browser_tracker",
     "ide": "sys_skill_ide_tracker",

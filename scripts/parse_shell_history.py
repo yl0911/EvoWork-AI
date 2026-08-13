@@ -24,8 +24,8 @@ import urllib.request
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-EVOBOOK_SHELL_BATCH_API = os.environ.get(
-    "EVOBOOK_SHELL_BATCH_API", "http://127.0.0.1:8000/api/collect/shell/batch"
+EVOWORK_SHELL_BATCH_API = os.environ.get(
+    "EVOWORK_SHELL_BATCH_API", "http://127.0.0.1:8000/api/collect/shell/batch"
 )
 DEFAULT_BATCH_SIZE = 100  # 每批发送数量
 
@@ -156,7 +156,7 @@ def send_batch(commands: list[dict], shell_type: str, dry_run: bool = False) -> 
         try:
             data = json.dumps(payload).encode("utf-8")
             req = urllib.request.Request(
-                EVOBOOK_SHELL_BATCH_API,
+                EVOWORK_SHELL_BATCH_API,
                 data=data,
                 headers={"Content-Type": "application/json"},
                 method="POST",

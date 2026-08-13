@@ -4,11 +4,11 @@
 # 也可手动 source 此文件: source /path/to/shell_hook.sh
 
 # ── 配置 ──────────────────────────────────────────
-EVOBOOK_SHELL_API="${EVOBOOK_SHELL_API:-http://127.0.0.1:8000/api/collect/shell}"
-EVOBOOK_SHELL_BATCH_API="${EVOBOOK_SHELL_BATCH_API:-http://127.0.0.1:8000/api/collect/shell/batch}"
-EVOBOOK_BUFFER_FILE="${EVOBOOK_BUFFER_FILE:-$HOME/.evowork_shell_buffer.log}"
-EVOBOOK_FLUSH_INTERVAL="${EVOBOOK_FLUSH_INTERVAL:-30}"  # 秒，缓冲区刷新间隔
-EVOBOOK_SHELL_ENABLED="${EVOBOOK_SHELL_ENABLED:-1}"
+EVOWORK_SHELL_API="${EVOWORK_SHELL_API:-http://127.0.0.1:8000/api/collect/shell}"
+EVOWORK_SHELL_BATCH_API="${EVOWORK_SHELL_BATCH_API:-http://127.0.0.1:8000/api/collect/shell/batch}"
+EVOWORK_BUFFER_FILE="${EVOWORK_BUFFER_FILE:-$HOME/.evowork_shell_buffer.log}"
+EVOWORK_FLUSH_INTERVAL="${EVOWORK_FLUSH_INTERVAL:-30}"  # 秒，缓冲区刷新间隔
+EVOWORK_SHELL_ENABLED="${EVOWORK_SHELL_ENABLED:-1}"
 
 # 内部状态
 _evowork_last_flush=0
@@ -16,7 +16,7 @@ _evowork_last_flush=0
 # ── Hook 函数 ─────────────────────────────────────
 
 _evowork_shell_hook() {
-    [ "$EVOBOOK_SHELL_ENABLED" = "0" ] && return 0
+    [ "$EVOWORK_SHELL_ENABLED" = "0" ] && return 0
 
     local exit_code=$?
     local cmd
@@ -60,12 +60,12 @@ _evowork_shell_hook() {
             -d "$payload" \
             --connect-timeout 2 \
             --max-time 3 \
-            "$EVOBOOK_SHELL_API" >/dev/null 2>&1 &
+            "$EVOWORK_SHELL_API" >/dev/null 2>&1 &
     elif command -v python3 >/dev/null 2>&1; then
         python3 -c "
 import urllib.request, json, sys
 try:
-    req = urllib.request.Request('$EVOBOOK_SHELL_API',
+    req = urllib.request.Request('$EVOWORK_SHELL_API',
         data=json.dumps(json.loads('''$payload''')).encode(),
         headers={'Content-Type': 'application/json'}, method='POST')
     urllib.request.urlopen(req, timeout=3)
@@ -73,13 +73,13 @@ except: pass
 " >/dev/null 2>&1 &
     else
         # 写入缓冲区，下次批量补发
-        echo "$payload" >> "$EVOBOOK_BUFFER_FILE"
+        echo "$payload" >> "$EVOWORK_BUFFER_FILE"
     fi
 
     # 定时刷新缓冲区
     local now_ts
     now_ts=$(date +%s)
-    if [ $((now_ts - _evowork_last_flush)) -ge "$EVOBOOK_FLUSH_INTERVAL" ]; then
+    if [ $((now_ts - _evowork_last_flush)) -ge "$EVOWORK_FLUSH_INTERVAL" ]; then
         _evowork_flush_buffer
         _evowork_last_flush=$now_ts
     fi
@@ -88,14 +88,14 @@ except: pass
 # ── 缓冲区刷新 ────────────────────────────────────
 
 _evowork_flush_buffer() {
-    [ ! -f "$EVOBOOK_BUFFER_FILE" ] && return 0
-    [ ! -s "$EVOBOOK_BUFFER_FILE" ] && return 0
+    [ ! -f "$EVOWORK_BUFFER_FILE" ] && return 0
+    [ ! -s "$EVOWORK_BUFFER_FILE" ] && return 0
 
     local items=""
     while IFS= read -r line; do
         [ -z "$line" ] && continue
         items="${items}${items:+, }${line}"
-    done < "$EVOBOOK_BUFFER_FILE"
+    done < "$EVOWORK_BUFFER_FILE"
 
     [ -z "$items" ] && return 0
 
@@ -107,9 +107,9 @@ _evowork_flush_buffer() {
         -d "$batch_payload" \
         --connect-timeout 3 \
         --max-time 10 \
-        "$EVOBOOK_SHELL_BATCH_API" >/dev/null 2>&1; then
+        "$EVOWORK_SHELL_BATCH_API" >/dev/null 2>&1; then
         # 发送成功，清空缓冲区
-        > "$EVOBOOK_BUFFER_FILE"
+        > "$EVOWORK_BUFFER_FILE"
     fi
 }
 

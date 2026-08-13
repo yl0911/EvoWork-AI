@@ -61,8 +61,8 @@ def install(shell_type: str) -> None:
     print(f"[EvoWork] Restart your shell or run: source {rc_file}")
     print()
     print("  Configuration (env vars):")
-    print("    EVOBOOK_SHELL_API    — API endpoint (default: http://127.0.0.1:8000/api/collect/shell)")
-    print("    EVOBOOK_SHELL_ENABLED — Set to 0 to disable (default: 1)")
+    print("    EVOWORK_SHELL_API    — API endpoint (default: http://127.0.0.1:8000/api/collect/shell)")
+    print("    EVOWORK_SHELL_ENABLED — Set to 0 to disable (default: 1)")
     print()
 
 

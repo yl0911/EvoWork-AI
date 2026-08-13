@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import {
   Database, Cpu, Layers, HardDrive, CheckCircle, XCircle, RefreshCw,
   Radio, GitBranch, Terminal, Monitor, Globe, Code2, UserCircle,
-  ChevronDown, ChevronUp, Copy, Check, Upload, Clock,
+  ChevronDown, ChevronUp, Copy, Check, Upload, Clock, AlertTriangle,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
@@ -386,6 +386,12 @@ export default function Config() {
                         : <span>—</span>
                       }
                     </div>
+                    {col.stale && (
+                      <div className="flex items-center gap-1 text-amber-500" title={`超过 ${col.stale_threshold_hours}h 未收到数据`}>
+                        <AlertTriangle className="h-3 w-3" />
+                        <span className="text-[10px] font-medium">Stale</span>
+                      </div>
+                    )}
                     {col.endpoint && (
                       <div className="ml-auto font-mono text-[10px] text-muted-foreground/60">
                         {col.endpoint}

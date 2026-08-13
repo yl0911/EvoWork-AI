@@ -2,7 +2,7 @@
 """Git post-commit hook: 将提交信息发送到 EvoWork-AI 采集器。
 
 用法: 由 git post-commit hook 调用，无需手动运行。
-配置: 修改 EVOBOOK_API 指向你的 EvoWork-AI 服务地址。
+配置: 修改 EVOWORK_API 指向你的 EvoWork-AI 服务地址。
 """
 
 import json
@@ -11,7 +11,7 @@ import subprocess
 import sys
 import urllib.request
 
-EVOBOOK_API = "http://127.0.0.1:8000/api/collect/git"
+EVOWORK_API = "http://127.0.0.1:8000/api/collect/git"
 
 
 def _run_git(*args: str) -> str:
@@ -73,7 +73,7 @@ def main():
         info = get_commit_info()
         data = json.dumps(info).encode("utf-8")
         req = urllib.request.Request(
-            EVOBOOK_API,
+            EVOWORK_API,
             data=data,
             headers={"Content-Type": "application/json"},
             method="POST",

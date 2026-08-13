@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy import func, select
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -21,8 +23,40 @@ from app.schemas.collector import (
 )
 from app.services.collector import CollectorService
 from app.services.collector_guard import get_all_collector_skills, is_source_enabled
+from app.core.config import settings
+
+# 各采集来源的 staleness 阈值（小时）——超过该时间未收到数据视为 stale
+STALE_THRESHOLDS: dict[str, float] = {
+    "git": 48,
+    "shell": 24,
+    "activitywatch": 6,
+    "browser": 24,
+    "ide": 24,
+}
 
 router = APIRouter(prefix="/collect", tags=["collectors"])
+
+
+async def api_key_guard(request: Request) -> None:
+    """API Key 认证守卫 — 仅在 COLLECTOR_API_KEY 配置时生效。
+
+    检查请求头 X-API-Key 是否匹配。未配置密钥时跳过验证（向后兼容）。
+    """
+    if not settings.collector_api_key:
+        return  # 未配置 API Key，不限制
+    provided = request.headers.get("X-API-Key", "")
+    if provided != settings.collector_api_key:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+def _check_batch_size(events: list, label: str = "events") -> None:
+    """校验批量大小不超过 collector_max_batch_size。"""
+    limit = settings.collector_max_batch_size
+    if len(events) > limit:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Batch too large: {len(events)} {label} exceeds limit of {limit}",
+        )
 
 
 def _source_stats(db: Session) -> dict[str, dict]:
@@ -52,10 +86,23 @@ def _guard(db: Session, source: str) -> None:
         )
 
 
+def _is_stale(source: str, last_collected_at: str | None) -> bool:
+    """判断某采集来源是否 stale（超过阈值未收到数据）。"""
+    threshold_hours = STALE_THRESHOLDS.get(source)
+    if threshold_hours is None or last_collected_at is None:
+        return False
+    last_dt = datetime.fromisoformat(last_collected_at)
+    if last_dt.tzinfo is None:
+        last_dt = last_dt.replace(tzinfo=timezone.utc)
+    age_hours = (datetime.now(timezone.utc) - last_dt).total_seconds() / 3600
+    return age_hours > threshold_hours
+
+
 @router.post("/git", response_model=IngestResult)
 def collect_git_commit(
     payload: GitCommitPayload,
     db: Session = Depends(get_db),
+    _: None = Depends(api_key_guard),
 ) -> IngestResult:
     """接收 git post-commit hook 推送的提交信息。"""
     _guard(db, "git")
@@ -67,6 +114,7 @@ def collect_git_commit(
 def collect_shell_command(
     payload: ShellCommandPayload,
     db: Session = Depends(get_db),
+    _: None = Depends(api_key_guard),
 ) -> IngestResult:
     """接收 shell hook 推送的单条命令。"""
     _guard(db, "shell")
@@ -78,9 +126,11 @@ def collect_shell_command(
 def collect_shell_batch(
     payload: ShellBatchPayload,
     db: Session = Depends(get_db),
+    _: None = Depends(api_key_guard),
 ) -> BatchIngestResult:
     """批量导入 shell 历史命令（历史文件解析或离线缓冲区补发）。"""
     _guard(db, "shell")
+    _check_batch_size(payload.commands, "commands")
     service = CollectorService(db)
     return service.ingest_shell_batch(payload.commands, source=payload.source)
 
@@ -89,12 +139,14 @@ def collect_shell_batch(
 def collect_activitywatch(
     payload: ActivityWatchBatchPayload,
     db: Session = Depends(get_db),
+    _: None = Depends(api_key_guard),
 ) -> BatchIngestResult:
     """导入 ActivityWatch 窗口活动数据。
 
     事件会按 (app, title) 聚合为 session，自动分类并推断项目，时间窗口去重。
     """
     _guard(db, "activitywatch")
+    _check_batch_size(payload.events, "events")
     service = CollectorService(db)
     return service.ingest_activitywatch_batch(payload.events)
 
@@ -103,6 +155,7 @@ def collect_activitywatch(
 def collect_browser(
     payload: BrowserBatchPayload,
     db: Session = Depends(get_db),
+    _: None = Depends(api_key_guard),
 ) -> BatchIngestResult:
     """接收浏览器扩展推送的页面活动数据。
 
@@ -110,6 +163,7 @@ def collect_browser(
     推断关联项目，时间窗口去重。
     """
     _guard(db, "browser")
+    _check_batch_size(payload.events, "events")
     service = CollectorService(db)
     return service.ingest_browser_batch(payload.events)
 
@@ -118,6 +172,7 @@ def collect_browser(
 def collect_ide(
     payload: IdeBatchPayload,
     db: Session = Depends(get_db),
+    _: None = Depends(api_key_guard),
 ) -> BatchIngestResult:
     """接收 IDE 扩展推送的编辑活动数据。
 
@@ -125,6 +180,7 @@ def collect_ide(
     推断编程语言和项目，时间窗口去重。
     """
     _guard(db, "ide")
+    _check_batch_size(payload.events, "events")
     service = CollectorService(db)
     return service.ingest_ide_batch(payload.events)
 
@@ -133,21 +189,29 @@ def collect_ide(
 def batch_import(
     payload: ImportBatchRequest,
     db: Session = Depends(get_db),
+    _: None = Depends(api_key_guard),
 ) -> BatchIngestResult:
     """批量导入外部来源事件（ActivityWatch、脚本等）。"""
     _guard(db, payload.source)
+    _check_batch_size(payload.items, "items")
     service = CollectorService(db)
     return service.ingest_batch(payload.items, default_source=payload.source)
 
 
 @router.get("/status")
 def collector_status(db: Session = Depends(get_db)) -> dict:
-    """列出所有采集器及其状态，含关联的系统 Skill 信息和采集统计。"""
+    """列出所有采集器及其状态，含关联的系统 Skill 信息、采集统计和 staleness 检测。"""
     skill_status = get_all_collector_skills(db)
     stats = _source_stats(db)
 
     def _stats(source: str) -> dict:
-        return stats.get(source, {"event_count": 0, "last_collected_at": None})
+        s = stats.get(source, {"event_count": 0, "last_collected_at": None})
+        threshold = STALE_THRESHOLDS.get(source)
+        return {
+            **s,
+            "stale": _is_stale(source, s.get("last_collected_at")),
+            "stale_threshold_hours": threshold,
+        }
 
     collectors = [
         {
@@ -182,6 +246,8 @@ def collector_status(db: Session = Depends(get_db)) -> dict:
             "linked_skill": None,
             "event_count": 0,
             "last_collected_at": None,
+            "stale": False,
+            "stale_threshold_hours": None,
         },
         {
             "name": "activitywatch",
