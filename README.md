@@ -8,7 +8,7 @@ A local-first work and learning evolution assistant. EvoWork AI automatically co
 
 **Events** — Full-text searchable event timeline with inline editing, revision history, filtering by source/type/tag, and batch import support.
 
-**Skills** — Three-tier skill library (Thinking / Reusable / Open Source) with create, edit, toggle, backfill, pattern mining, and AI-powered recommendations based on 30-day activity analysis.
+**Skills** — Three-tier skill library (Thinking / Reusable / Open Source) with create, edit, toggle, backfill, pattern mining, usage tracking (record effectiveness per use), and AI-powered recommendations based on 30-day activity analysis.
 
 **AI Assistant** — Conversational interface with SSE streaming, conversation sidebar (create/switch/delete), persistent chat history (survives page navigation and browser refresh), and context-aware quick actions (period review, skill suggestions, data analysis).
 
@@ -49,7 +49,7 @@ EvoWork-AI/
 ├── collectors/                 # Data collection extensions
 │   ├── chrome-extension/       # Chrome Manifest V3 — browser activity tracking
 │   └── vscode-extension/       # VSCode — IDE editing activity tracking
-├── scripts/                    # Import scripts and hook installers
+├── scripts/                    # Import scripts, hook installers, setup_collectors.py
 ├── data/                       # SQLite DB, Chroma index, file storage
 └── docs/                       # Design documents
 ```
@@ -61,7 +61,7 @@ The frontend is a single-page application with all 7 pages always mounted (CSS `
 ### Prerequisites
 
 - Python 3.10+
-- Node.js 18+ (for frontend development)
+- Node.js 18+ (for frontend build)
 
 ### Install and Run
 
@@ -73,11 +73,21 @@ cd EvoWork-AI
 # Install Python dependencies
 pip install -r requirements.txt
 
-# (Optional) Build frontend
+# Install frontend dependencies and build
 cd frontend && npm install && npm run build && cd ..
 
-# Start the server
+# Start the server (serves both API and frontend)
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+For active frontend development, run the Vite dev server alongside the backend:
+
+```bash
+# Terminal 1: backend
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+
+# Terminal 2: frontend dev server (HMR)
+cd frontend && npm run dev
 ```
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
@@ -208,6 +218,19 @@ The Config page monitors collector health and shows a **Stale** warning when a c
 | Browser | 24 hours |
 | IDE | 24 hours |
 
+### Data Collection Model
+
+EvoWork uses a **push-based** architecture — the server never polls for data. Each collector pushes events to the API when triggered:
+
+| Source | Trigger | Frequency |
+|---|---|---|
+| Git | `post-commit` hook fires on every `git commit` | Per commit |
+| Shell | `PROMPT_COMMAND` hook fires after each command | Per command (with offline buffer) |
+| ActivityWatch | `activitywatch_import.py` script (manual or cron) | User-configured (e.g. every 6h) |
+| Browser | Chrome extension internal timer | Every 5 minutes |
+| IDE | VSCode extension internal timer | Every 5 minutes |
+| Manual | User creates via Events page | On demand |
+
 ## API Overview
 
 All API endpoints are prefixed with `/api`:
@@ -217,7 +240,7 @@ All API endpoints are prefixed with `/api`:
 | Events | `/api/events` | CRUD for work events, revision history |
 | Collectors | `/api/collect/*` | Git, shell, ActivityWatch, browser, IDE ingestion |
 | AI | `/api/ai/*` | Chat streaming, conversation management |
-| Skills | `/api/skills/*` | CRUD, recommendations, backfill, pattern mining |
+| Skills | `/api/skills/*` | CRUD, recommendations, backfill, pattern mining, usage tracking |
 | Analytics | `/api/analytics/*` | Dashboard stats, timeline, engine queries |
 | Search | `/api/search/*` | Hybrid FTS5+vector search, hot terms |
 
@@ -225,19 +248,19 @@ Interactive API docs available at [http://127.0.0.1:8000/docs](http://127.0.0.1:
 
 ## Development
 
-### Frontend Development
-
-```bash
-cd frontend
-npm install
-npm run dev        # Vite dev server with HMR
-```
-
 ### Backend Development
 
 ```bash
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
+
+### Frontend Development
+
+```bash
+cd frontend && npm run dev    # Vite dev server with HMR on port 5173
+```
+
+The Vite dev server proxies `/api` requests to the backend at `localhost:8000`.
 
 ### Database Migrations
 
