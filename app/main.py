@@ -233,12 +233,12 @@ if _frontend_dist.is_dir():
             return FileResponse(file_path)
         return FileResponse(_frontend_dist / "index.html")
 else:
-    # 降级：旧版 app/static
-    static_dir = Path(__file__).parent / "static"
-
-    @app.get("/")
-    def index() -> FileResponse:
-        return FileResponse(static_dir / "index.html")
+    # React 前端未构建 — 输出警告而非静默失败
+    import warnings
+    warnings.warn(
+        "frontend/dist/ not found. Run 'cd frontend && npm run build' to enable the web UI.",
+        stacklevel=1,
+    )
 
 
 if __name__ == "__main__":
