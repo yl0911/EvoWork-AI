@@ -199,6 +199,8 @@ def _infer_project_from_title(title: str, url: str | None = None) -> str | None:
 
         # 2. 已知文档站 → 项目名映射
         _DOMAIN_PROJECT: list[tuple[re.Pattern, str]] = [
+            # 本地开发
+            (re.compile(r"127\.0\.0\.1:8000|localhost:8000", re.I), "EvoWork-AI"),
             # JS/TS 生态
             (re.compile(r"reactjs\.org|react\.dev|reactnative", re.I), "React"),
             (re.compile(r"vuejs\.org|vue\.js|vitejs\.dev", re.I), "Vue"),
@@ -248,6 +250,8 @@ def _infer_project_from_title(title: str, url: str | None = None) -> str | None:
             (re.compile(r"cloud\.google", re.I), "GCP"),
             (re.compile(r"learn\.microsoft|docs\.microsoft", re.I), "Microsoft"),
             (re.compile(r"developer\.mozilla|mdn", re.I), "MDN"),
+            (re.compile(r"ebayimg\.com|ebay", re.I), "Ebay"),
+            (re.compile(r"feishu\.cn|larksuite", re.I), "Feishu"),
             # AI / LLM
             (re.compile(r"openai\.com|platform\.openai", re.I), "OpenAI"),
             (re.compile(r"anthropic\.com|docs\.anthropic", re.I), "Anthropic"),
@@ -325,6 +329,19 @@ def _infer_project_from_title(title: str, url: str | None = None) -> str | None:
             candidate = parts[0].strip()
         if 2 < len(candidate) < 50:
             return candidate
+
+    # 5. Title keyword fallback — 标题中直接包含已知项目名
+    _TITLE_KEYWORDS: list[tuple[str, str]] = [
+        ("fastapi", "FastAPI"), ("django", "Django"), ("flask", "Flask"),
+        ("react", "React"), ("vue", "Vue"), ("angular", "Angular"),
+        ("pytorch", "PyTorch"), ("tensorflow", "TensorFlow"),
+        ("docker", "Docker"), ("kubernetes", "Kubernetes"),
+        ("langchain", "LangChain"), ("pandas", "Pandas"),
+    ]
+    title_lower = title.lower()
+    for keyword, project_name in _TITLE_KEYWORDS:
+        if keyword in title_lower:
+            return project_name
 
     return None
 
