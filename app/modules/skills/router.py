@@ -149,3 +149,70 @@ def backfill_skill_links() -> dict:
     from app.services.skill_engine import get_skill_engine
     engine = get_skill_engine()
     return engine.backfill_links()
+
+
+@router.post("/skills/mine")
+def mine_skills(
+    db: Session = Depends(get_db),
+    days: int = Query(default=30, ge=7, le=90),
+    max_candidates: int = Query(default=5, ge=1, le=10),
+    use_llm: bool = Query(default=True),
+) -> dict:
+    """运行 Skill 自动挖掘流水线：检测事件模式 → 生成 Skill 草稿。"""
+    from app.services.skill_miner import get_skill_miner
+    miner = get_skill_miner()
+    candidates = miner.mine(
+        db, days=days, max_candidates=max_candidates, use_llm=use_llm,
+    )
+    return {"total": len(candidates), "candidates": candidates}
+
+
+from pydantic import BaseModel as _BM
+
+
+class _MineConfirmBody(_BM):
+    draft_content: str | None = None
+    name: str | None = None
+    category: str | None = None
+    trigger: str | None = None
+    content: str | None = None
+    steps: list[str] | None = None
+    pattern_key: str | None = None
+    success_criteria: str | None = None
+    failure_fallback: str | None = None
+    agent_assistable: bool = False
+
+
+@router.post("/skills/mine/confirm")
+def confirm_mined_skill(
+    body: _MineConfirmBody,
+    db: Session = Depends(get_db),
+) -> dict:
+    """将挖掘候选项确认为正式 Skill（source=mined）。"""
+    from app.services.skill_miner import get_skill_miner
+    miner = get_skill_miner()
+    return miner.confirm(
+        db,
+        draft_content=body.draft_content,
+        name=body.name,
+        category=body.category,
+        trigger=body.trigger,
+        content=body.content,
+        steps=body.steps,
+        pattern_key=body.pattern_key,
+        success_criteria=body.success_criteria,
+        failure_fallback=body.failure_fallback,
+        agent_assistable=body.agent_assistable,
+    )
+
+
+@router.get("/skills/mine/patterns")
+def mine_patterns(
+    db: Session = Depends(get_db),
+    days: int = Query(default=30, ge=7, le=90),
+    min_count: int = Query(default=3, ge=2, le=20),
+) -> dict:
+    """检测反复出现的事件模式（不调用 LLM，纯算法分析）。"""
+    from app.services.skill_miner import detect_patterns
+    patterns = detect_patterns(db, days=days, min_count=min_count)
+    return {"total": len(patterns), "patterns": [p.to_dict() for p in patterns]}

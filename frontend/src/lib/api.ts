@@ -44,6 +44,12 @@ export const api = {
   skillRecommendations: (limit = 10) => request<any>(`/skills/recommendations?limit=${limit}`),
   skillLinkedEvents: (id: string, limit = 50) => request<any>(`/skills/${id}/events?limit=${limit}`),
   backfillSkillLinks: () => request<any>('/skills/backfill', { method: 'POST' }),
+  mineSkills: (days = 30, maxCandidates = 5, useLlm = true) =>
+    request<any>(`/skills/mine?days=${days}&max_candidates=${maxCandidates}&use_llm=${useLlm}`, { method: 'POST' }),
+  minePatterns: (days = 30, minCount = 3) =>
+    request<any>(`/skills/mine/patterns?days=${days}&min_count=${minCount}`),
+  confirmMinedSkill: (data: any) =>
+    request<any>('/skills/mine/confirm', { method: 'POST', body: JSON.stringify(data) }),
 
   // Insights
   insightsSummary: (period: string) => request<any>(`/insights/summary?period=${period}`),

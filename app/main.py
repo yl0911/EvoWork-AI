@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+os.environ["PYTHONIOENCODING"] = "utf-8"
+os.environ.setdefault("PYTHONUTF8", "1")
+
 from contextlib import asynccontextmanager
 from pathlib import Path
 import sys

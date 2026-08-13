@@ -138,6 +138,85 @@ export default function Skills() {
   const [backfilling, setBackfilling] = useState(false);
   const [backfillResult, setBackfillResult] = useState<string | null>(null);
 
+  // Mining state
+  const [miningPatterns, setMiningPatterns] = useState<any[]>([]);
+  const [miningCandidates, setMiningCandidates] = useState<any[]>([]);
+  const [miningLoading, setMiningLoading] = useState(false);
+  const [expandedCandidate, setExpandedCandidate] = useState<number | null>(null);
+  const [confirmingIdx, setConfirmingIdx] = useState<number | null>(null);
+  const [miningMessage, setMiningMessage] = useState<string | null>(null);
+
+  /* ── Mining functions ──────────────────────────────── */
+
+  const handleDetectPatterns = useCallback(async () => {
+    try {
+      setMiningLoading(true);
+      setMiningMessage(null);
+      setExpandedCandidate(null);
+      const res = await api.minePatterns(30, 3);
+      setMiningPatterns(res.patterns ?? []);
+      setMiningCandidates([]);
+      if (res.patterns?.length) {
+        setMiningMessage(`Detected ${res.patterns.length} recurring patterns`);
+      } else {
+        setMiningMessage('No recurring patterns found (need 3+ events per pattern)');
+      }
+    } catch (err) {
+      console.error('Pattern detection failed:', err);
+      setMiningMessage('Pattern detection failed');
+    } finally {
+      setMiningLoading(false);
+    }
+  }, []);
+
+  const handleMineWithLLM = useCallback(async () => {
+    try {
+      setMiningLoading(true);
+      setMiningMessage(null);
+      setExpandedCandidate(null);
+      const res = await api.mineSkills(30, 5, true);
+      setMiningCandidates(res.candidates ?? []);
+      setMiningPatterns(res.candidates?.map((c: any) => c.pattern) ?? []);
+      if (res.candidates?.length) {
+        setMiningMessage(`Generated ${res.candidates.length} skill drafts`);
+      } else {
+        setMiningMessage('No new patterns to mine (existing skills already cover your activity)');
+      }
+    } catch (err) {
+      console.error('Mining failed:', err);
+      setMiningMessage('Mining failed — check LLM connection');
+    } finally {
+      setMiningLoading(false);
+    }
+  }, []);
+
+  const handleConfirmCandidate = async (idx: number, candidate: any) => {
+    try {
+      setConfirmingIdx(idx);
+      const draftContent = candidate.draft?.content || '';
+      const res = await api.confirmMinedSkill({
+        draft_content: draftContent,
+        name: candidate.pattern?.primary_tag
+          ? `${candidate.pattern.primary_tag.replace(/[-_]/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())} Skill`
+          : `${candidate.pattern?.event_type || 'Untitled'} Skill`,
+        category: 'reusable',
+        trigger: `When encountering ${candidate.pattern?.event_type} tasks related to "${candidate.pattern?.primary_tag || candidate.pattern?.event_type}"`,
+        content: draftContent.substring(0, 500),
+        steps: ['Identify the problem context', 'Apply the established pattern', 'Verify the result'],
+      });
+      setMiningMessage(`Created skill: ${res.name}`);
+      // Remove confirmed candidate from list
+      setMiningCandidates((prev) => prev.filter((_, i) => i !== idx));
+      setExpandedCandidate(null);
+      await fetchSkills();
+    } catch (err) {
+      console.error('Confirm failed:', err);
+      setMiningMessage('Failed to create skill');
+    } finally {
+      setConfirmingIdx(null);
+    }
+  };
+
   /* ── Fetch skills ──────────────────────────────────── */
 
   const fetchSkills = useCallback(async () => {
@@ -377,6 +456,150 @@ export default function Skills() {
             Analyzing activity patterns...
           </div>
         )}
+
+        {/* Skill Mining Section */}
+        <Card className="mb-6 border-indigo-200/60 bg-indigo-50/30 dark:border-indigo-900/40 dark:bg-indigo-950/10">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center justify-between text-base">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-indigo-500" />
+                Skill Mining
+                <span className="text-xs font-normal text-muted-foreground">
+                  Detect recurring patterns and auto-generate skills
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDetectPatterns}
+                  disabled={miningLoading}
+                  className="gap-1.5 text-xs"
+                >
+                  <BarChart3 className="h-3.5 w-3.5" />
+                  {miningLoading ? 'Analyzing...' : 'Detect Patterns'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleMineWithLLM}
+                  disabled={miningLoading}
+                  className="gap-1.5 text-xs"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {miningLoading ? 'Mining...' : 'Mine with AI'}
+                </Button>
+              </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {miningMessage && (
+              <div className="mb-3 text-xs text-indigo-600 dark:text-indigo-400">{miningMessage}</div>
+            )}
+
+            {miningPatterns.length === 0 && !miningLoading && (
+              <div className="py-6 text-center text-xs text-muted-foreground">
+                Click "Detect Patterns" to find recurring activity themes, or "Mine with AI" to generate skill drafts.
+              </div>
+            )}
+
+            {miningPatterns.length > 0 && (
+              <div className="space-y-2">
+                {miningCandidates.length > 0
+                  ? miningCandidates.map((candidate, idx) => {
+                      const p = candidate.pattern;
+                      const isExpanded = expandedCandidate === idx;
+                      return (
+                        <div
+                          key={p.key}
+                          className="rounded-lg border bg-card transition-colors hover:bg-accent/20"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setExpandedCandidate(isExpanded ? null : idx)}
+                            className="flex w-full items-center gap-3 p-3 text-left"
+                          >
+                            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${p.count >= 10 ? 'bg-green-500' : p.count >= 5 ? 'bg-yellow-500' : 'bg-indigo-400'}`} />
+                            <span className="min-w-0 flex-1">
+                              <span className="text-sm font-medium">
+                                {p.primary_tag ? p.primary_tag.replace(/[-_]/g, ' ') : p.event_type}
+                              </span>
+                              <span className="ml-2 text-xs text-muted-foreground">
+                                {p.count} events · {p.total_minutes} min
+                              </span>
+                            </span>
+                            <Badge variant="outline" className="text-[10px] shrink-0">
+                              {p.event_type}
+                            </Badge>
+                            {candidate.draft?.provider === 'fallback' ? (
+                              <Badge variant="secondary" className="text-[10px] shrink-0">rule-based</Badge>
+                            ) : (
+                              <Badge variant="default" className="text-[10px] shrink-0 bg-indigo-500">AI draft</Badge>
+                            )}
+                            {isExpanded ? <ChevronUp className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                          </button>
+
+                          {isExpanded && (
+                            <div className="border-t px-3 pb-3 pt-2">
+                              <div className="mb-2 flex flex-wrap gap-1.5">
+                                {p.sample_titles.slice(0, 5).map((t: string, i: number) => (
+                                  <span key={i} className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground line-clamp-1">
+                                    {t}
+                                  </span>
+                                ))}
+                              </div>
+                              {candidate.draft?.content && (
+                                <pre className="mb-3 max-h-[200px] overflow-y-auto rounded bg-muted/50 p-2 text-[11px] leading-relaxed whitespace-pre-wrap font-sans">
+                                  {candidate.draft.content}
+                                </pre>
+                              )}
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleConfirmCandidate(idx, candidate)}
+                                  disabled={confirmingIdx === idx}
+                                  className="gap-1.5 text-xs bg-indigo-500 hover:bg-indigo-600"
+                                >
+                                  <Plus className="h-3 w-3" />
+                                  {confirmingIdx === idx ? 'Creating...' : 'Create Skill'}
+                                </Button>
+                                <span className="text-[11px] text-muted-foreground">
+                                  source: mined
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  : miningPatterns.map((p, idx) => (
+                      <div
+                        key={p.key}
+                        className="flex items-center gap-3 rounded-lg border bg-card p-3 transition-colors hover:bg-accent/20"
+                      >
+                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${p.count >= 10 ? 'bg-green-500' : p.count >= 5 ? 'bg-yellow-500' : 'bg-indigo-400'}`} />
+                        <span className="min-w-0 flex-1">
+                          <span className="text-sm font-medium">
+                            {p.primary_tag ? p.primary_tag.replace(/[-_]/g, ' ') : p.event_type}
+                          </span>
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {p.count} events · {p.total_minutes} min
+                          </span>
+                        </span>
+                        <Badge variant="outline" className="text-[10px] shrink-0">
+                          {p.event_type}
+                        </Badge>
+                        {p.project && (
+                          <span className="text-[11px] text-muted-foreground truncate max-w-[120px]">
+                            {p.project}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* Left Panel: Create Skill Form */}
