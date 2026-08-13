@@ -20,7 +20,7 @@ let currentFile: {
   startTime: number;
   linesChanged: number;
 } | null = null;
-let sendTimer: NodeJS.Timer | null = null;
+let sendTimer: ReturnType<typeof setInterval> | null = null;
 let statusBarItem: vscode.StatusBarItem;
 
 // ── Tracking ────────────────────────────────────────

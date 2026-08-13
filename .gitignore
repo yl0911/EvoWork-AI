@@ -17,4 +17,6 @@ logs/
 .ruff_cache/
 *.png
 *.jpg
+*.vsix
+collectors/vscode-extension/out/
 frontend/C:UsersAdministrator.qoderwork*

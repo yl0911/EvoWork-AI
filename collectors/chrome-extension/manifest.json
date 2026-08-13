@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "description": "Track browser activity and send to EvoWork AI for work pattern analysis",
   "permissions": ["tabs", "activeTab", "storage", "alarms"],
+  "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
   },
