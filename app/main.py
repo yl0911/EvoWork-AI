@@ -31,6 +31,7 @@ from app.migrations.migrate_phase3 import migrate as run_phase3_migration
 from app.migrations.migrate_phase4 import migrate as run_phase4_migration
 from app.migrations.migrate_phase5 import migrate as run_phase5_migration
 from app.migrations.migrate_phase6 import migrate as run_phase6_migration
+from app.migrations.runner import run_migrations
 from app.services.bootstrap import seed_demo_data
 from app.services.indexing import reindex_all
 from app.services.search import get_search_service
@@ -39,28 +40,52 @@ from app.services.system_skills import seed_system_skills
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 运行数据库迁移（为旧表添加新列/新表）
-    run_phase2_migration(settings.database_url)
-    run_phase3_migration(settings.database_url)
-    run_phase4_migration(settings.database_url)
-    run_phase5_migration(settings.database_url)
-    run_phase6_migration(settings.database_url)
+    # ── 迁移（带追踪，跳过已应用的 phase）──
+    _migrations = {
+        "phase2": run_phase2_migration,
+        "phase3": run_phase3_migration,
+        "phase4": run_phase4_migration,
+        "phase5": run_phase5_migration,
+        "phase6": run_phase6_migration,
+    }
+    applied = run_migrations(settings.database_url, _migrations)
+    if applied:
+        print(f"[Migration] Applied: {', '.join(applied)}")
+    else:
+        print("[Migration] All phases up to date, skipped.")
+
     db_gw = get_db_gateway()
     db_gw.init_db()
-    # 初始化 FTS5 全文搜索表
+
+    # 初始化 FTS5 全文搜索表（幂等，极快）
     get_search_service().ensure_tables()
+
     with db_gw.get_session_context() as db:
         seed_demo_data(db)
         seed_system_skills(db)
-        # 启动时重建向量索引（确保现有数据可被搜索）
-        from sqlalchemy import select
-        from app.models import Skill, WorkEvent
-        events = list(db.execute(select(WorkEvent)).scalars())
-        skills = list(db.execute(select(Skill)).scalars())
-        result = reindex_all(events, skills)
-        if result.get("status") in ("ok", "vector_not_configured"):
-            print(f"[Index] Vector: {result.get('events', 0)} events, {result.get('skills', 0)} skills | "
-                  f"FTS5: {result.get('fts_events', 0)} events, {result.get('fts_skills', 0)} skills")
+
+        # ── 向量索引：仅在向量库为空时全量重建 ──
+        vec_gw = get_vector_gateway()
+        if vec_gw.configured:
+            health = vec_gw.health_check()
+            existing_events = health.get("events_indexed", 0)
+            existing_skills = health.get("skills_indexed", 0)
+            if existing_events == 0 and existing_skills == 0:
+                from sqlalchemy import select
+                from app.models import Skill, WorkEvent
+                events = list(db.execute(select(WorkEvent)).scalars())
+                skills = list(db.execute(select(Skill)).scalars())
+                result = reindex_all(events, skills)
+                print(f"[Index] Full reindex: Vector {result.get('events', 0)} events, "
+                      f"{result.get('skills', 0)} skills | "
+                      f"FTS5 {result.get('fts_events', 0)} events, "
+                      f"{result.get('fts_skills', 0)} skills")
+            else:
+                print(f"[Index] Vector already has {existing_events} events, "
+                      f"{existing_skills} skills — skip full reindex.")
+        else:
+            print("[Index] Vector store not configured, skipping.")
+
     yield
 
 
