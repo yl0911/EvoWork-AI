@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-  Trash2, Plus, BookOpen, Lightbulb, Recycle, Globe, Settings,
+  Trash2, Plus, BookOpen, Lightbulb, Recycle, Globe, Settings, Pencil,
   ChevronDown, ChevronUp, Sparkles, Link2, RefreshCw, BarChart3, Clock,
 } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -129,6 +129,7 @@ export default function Skills() {
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState('all');
   const [form, setForm] = useState<SkillForm>(initialForm);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   // Recommendation state
   const [recs, setRecs] = useState<Recommendation[]>([]);
@@ -348,16 +349,46 @@ export default function Skills() {
     if (!form.name.trim() || !form.trigger.trim()) return;
     try {
       setSubmitting(true);
-      await api.createSkill(buildPayload());
+      if (editingId) {
+        await api.updateSkill(editingId, buildPayload());
+        toast({ title: 'Skill 已更新', variant: 'success' });
+        setEditingId(null);
+      } else {
+        await api.createSkill(buildPayload());
+        toast({ title: 'Skill 创建成功', variant: 'success' });
+      }
       setForm(initialForm);
       await fetchSkills();
-      toast({ title: 'Skill 创建成功', variant: 'success' });
       fetchRecs();
     } catch (err) {
-      toast({ title: '创建失败', description: String(err?.message || err), variant: 'destructive' });
+      const action = editingId ? '更新' : '创建';
+      toast({ title: `${action}失败`, description: String(err?.message || err), variant: 'destructive' });
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const startEdit = (skill: Skill) => {
+    setEditingId(skill.id);
+    setForm({
+      name: skill.name,
+      category: skill.category,
+      trigger: skill.trigger,
+      content: skill.content || '',
+      steps: (skill.steps || []).join('\n'),
+      source: skill.source,
+      methods: (skill.methods || []).join('\n'),
+      success_criteria: skill.success_criteria || '',
+      failure_fallback: skill.failure_fallback || '',
+      agent_assistable: skill.agent_assistable || false,
+    });
+    // Scroll to form
+    document.querySelector('form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setForm(initialForm);
   };
 
   const handleDelete = async (id: string) => {
@@ -612,12 +643,12 @@ export default function Skills() {
         </Card>
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {/* Left Panel: Create Skill Form */}
+          {/* Left Panel: Create/Edit Skill Form */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Plus className="h-5 w-5" />
-                Create New Skill
+                {editingId ? <Pencil className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                {editingId ? '编辑 Skill' : 'Create New Skill'}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -731,9 +762,18 @@ export default function Skills() {
                   </>
                 )}
 
-                <Button type="submit" className="w-full" disabled={submitting}>
-                  {submitting ? 'Creating...' : 'Create Skill'}
-                </Button>
+                <div className="flex gap-2">
+                  <Button type="submit" className="flex-1" disabled={submitting}>
+                    {submitting
+                      ? (editingId ? 'Saving...' : 'Creating...')
+                      : (editingId ? '保存修改' : 'Create Skill')}
+                  </Button>
+                  {editingId && (
+                    <Button type="button" variant="outline" onClick={cancelEdit} disabled={submitting}>
+                      取消
+                    </Button>
+                  )}
+                </div>
               </form>
             </CardContent>
           </Card>
@@ -859,14 +899,26 @@ export default function Skills() {
                                   />
                                 </button>
                               ) : (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => setDeleteConfirmId(skill.id)}
-                                  className="shrink-0 text-muted-foreground hover:text-destructive"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => startEdit(skill)}
+                                    className="shrink-0 text-muted-foreground hover:text-foreground"
+                                    title="编辑"
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setDeleteConfirmId(skill.id)}
+                                    className="shrink-0 text-muted-foreground hover:text-destructive"
+                                    title="删除"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </>
                               )}
                             </div>
                           </div>
