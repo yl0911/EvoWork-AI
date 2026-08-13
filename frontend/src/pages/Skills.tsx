@@ -7,6 +7,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Trash2, Plus, BookOpen, Lightbulb, Recycle, Globe, Settings, Pencil,
   ChevronDown, ChevronUp, Sparkles, Link2, RefreshCw, BarChart3, Clock,
+  Play, Activity, ThumbsUp, ThumbsDown, Minus,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
@@ -139,6 +140,12 @@ export default function Skills() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [linkedData, setLinkedData] = useState<Record<string, { events: LinkedEvent[]; stats: LinkedStats }>>({});
   const [linkedLoading, setLinkedLoading] = useState<string | null>(null);
+
+  // Usage tracking state
+  const [usageRecordId, setUsageRecordId] = useState<string | null>(null);
+  const [usageExpandedId, setUsageExpandedId] = useState<string | null>(null);
+  const [usageData, setUsageData] = useState<Record<string, any>>({});
+  const [usageLoading, setUsageLoading] = useState<string | null>(null);
 
   // Backfill state
   const [backfilling, setBackfilling] = useState(false);
@@ -287,6 +294,50 @@ export default function Skills() {
       console.error('Failed to fetch linked events:', err);
     } finally {
       setLinkedLoading(null);
+    }
+  };
+
+  /* ── Usage tracking ───────────────────────────────── */
+
+  const toggleUsageHistory = async (skillId: string) => {
+    if (usageExpandedId === skillId) {
+      setUsageExpandedId(null);
+      setUsageRecordId(null);
+      return;
+    }
+    setUsageExpandedId(skillId);
+    setUsageRecordId(null);
+    if (usageData[skillId]) return;
+
+    try {
+      setUsageLoading(skillId);
+      const res = await api.skillUsageLogs(skillId, 20);
+      setUsageData((prev) => ({ ...prev, [skillId]: res }));
+    } catch (err) {
+      console.error('Failed to fetch usage logs:', err);
+    } finally {
+      setUsageLoading(null);
+    }
+  };
+
+  const handleRecordUse = async (skillId: string, outcome: string) => {
+    try {
+      const res = await api.useSkill(skillId, { outcome, time_saved_minutes: 0 });
+      toast({ title: `记录成功: ${outcome}`, variant: 'success' });
+      setUsageRecordId(null);
+      // Update skill's usage_count and avg_effectiveness in the list
+      setSkills((prev) => prev.map((s) =>
+        s.id === skillId
+          ? { ...s, usage_count: res.usage_count, avg_effectiveness: res.avg_effectiveness }
+          : s
+      ));
+      // Refresh usage data if expanded
+      if (usageExpandedId === skillId) {
+        const refreshed = await api.skillUsageLogs(skillId, 20);
+        setUsageData((prev) => ({ ...prev, [skillId]: refreshed }));
+      }
+    } catch (err) {
+      toast({ title: '记录失败', description: String(err?.message || err), variant: 'destructive' });
     }
   };
 
@@ -882,6 +933,62 @@ export default function Skills() {
                                   <ChevronDown className="h-3 w-3" />
                                 )}
                               </button>
+                              {/* Record use button */}
+                              <div className="relative">
+                                <button
+                                  type="button"
+                                  onClick={() => setUsageRecordId(usageRecordId === skill.id ? null : skill.id)}
+                                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                                  title="Record skill usage"
+                                >
+                                  <Play className="h-3.5 w-3.5" />
+                                </button>
+                                {usageRecordId === skill.id && (
+                                  <div className="absolute right-0 top-full z-10 mt-1 flex gap-1 rounded-lg border bg-popover p-1.5 shadow-md">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRecordUse(skill.id, 'effective')}
+                                      className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30 transition-colors"
+                                      title="Effective"
+                                    >
+                                      <ThumbsUp className="h-3 w-3" />
+                                      <span>Effective</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRecordUse(skill.id, 'partial')}
+                                      className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors"
+                                      title="Partial"
+                                    >
+                                      <Minus className="h-3 w-3" />
+                                      <span>Partial</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRecordUse(skill.id, 'ineffective')}
+                                      className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                                      title="Ineffective"
+                                    >
+                                      <ThumbsDown className="h-3 w-3" />
+                                      <span>Low</span>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                              {/* Usage history button */}
+                              <button
+                                type="button"
+                                onClick={() => toggleUsageHistory(skill.id)}
+                                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                                title="Usage history"
+                              >
+                                <Activity className="h-3.5 w-3.5" />
+                                {usageExpandedId === skill.id ? (
+                                  <ChevronUp className="h-3 w-3" />
+                                ) : (
+                                  <ChevronDown className="h-3 w-3" />
+                                )}
+                              </button>
                               {isSystem ? (
                                 <button
                                   type="button"
@@ -999,6 +1106,102 @@ export default function Skills() {
                                 <div className="py-4 text-center text-xs text-muted-foreground">
                                   No events linked to this skill yet.
                                 </div>
+                              ) : null}
+                            </div>
+                          )}
+
+                          {/* Expanded: Usage History */}
+                          {usageExpandedId === skill.id && (
+                            <div className="mt-3 border-t pt-3">
+                              {usageLoading === skill.id ? (
+                                <div className="py-4 text-center text-xs text-muted-foreground">
+                                  Loading usage history...
+                                </div>
+                              ) : usageData[skill.id] ? (
+                                (() => {
+                                  const ud = usageData[skill.id];
+                                  const outcomeColors: Record<string, string> = {
+                                    effective: 'border-green-400 text-green-600',
+                                    partial: 'border-amber-400 text-amber-600',
+                                    ineffective: 'border-red-400 text-red-600',
+                                  };
+                                  return (
+                                    <>
+                                      {/* Stats row */}
+                                      <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
+                                        <span className="inline-flex items-center gap-1 text-muted-foreground">
+                                          <BarChart3 className="h-3 w-3" />
+                                          {ud.total} uses
+                                        </span>
+                                        <span className="inline-flex items-center gap-1 text-muted-foreground">
+                                          <Clock className="h-3 w-3" />
+                                          {ud.total_time_saved} min saved
+                                        </span>
+                                        {ud.effective_count > 0 && (
+                                          <Badge variant="outline" className="text-[10px] px-1.5 border-green-400 text-green-600">
+                                            Effective: {ud.effective_count}
+                                          </Badge>
+                                        )}
+                                        {ud.partial_count > 0 && (
+                                          <Badge variant="outline" className="text-[10px] px-1.5 border-amber-400 text-amber-600">
+                                            Partial: {ud.partial_count}
+                                          </Badge>
+                                        )}
+                                        {ud.ineffective_count > 0 && (
+                                          <Badge variant="outline" className="text-[10px] px-1.5 border-red-400 text-red-600">
+                                            Ineffective: {ud.ineffective_count}
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      {/* Effectiveness bar */}
+                                      {ud.total > 0 && (
+                                        <div className="mb-3">
+                                          <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted">
+                                            <div className="bg-green-500" style={{ width: `${(ud.effective_count / ud.total) * 100}%` }} />
+                                            <div className="bg-amber-400" style={{ width: `${(ud.partial_count / ud.total) * 100}%` }} />
+                                            <div className="bg-red-400" style={{ width: `${(ud.ineffective_count / ud.total) * 100}%` }} />
+                                          </div>
+                                          <div className="mt-1 text-right text-[10px] text-muted-foreground">
+                                            Avg effectiveness: {Math.round(ud.avg_effectiveness * 100)}%
+                                          </div>
+                                        </div>
+                                      )}
+                                      {/* Log list */}
+                                      {ud.logs.length > 0 ? (
+                                        <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
+                                          {ud.logs.map((log: any) => (
+                                            <div
+                                              key={log.id}
+                                              className="flex items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/50 transition-colors"
+                                            >
+                                              <Badge
+                                                variant="outline"
+                                                className={`text-[10px] px-1.5 shrink-0 ${outcomeColors[log.outcome] || ''}`}
+                                              >
+                                                {log.outcome}
+                                              </Badge>
+                                              {log.time_saved_minutes > 0 && (
+                                                <span className="text-[10px] text-muted-foreground shrink-0">
+                                                  +{log.time_saved_minutes}m
+                                                </span>
+                                              )}
+                                              {log.notes && (
+                                                <span className="truncate flex-1 text-muted-foreground">{log.notes}</span>
+                                              )}
+                                              <span className="text-[10px] text-muted-foreground shrink-0 ml-auto">
+                                                {log.used_at ? formatDate(log.used_at) : ''}
+                                              </span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <div className="py-4 text-center text-xs text-muted-foreground">
+                                          No usage records yet. Click the Play button to record a use.
+                                        </div>
+                                      )}
+                                    </>
+                                  );
+                                })()
                               ) : null}
                             </div>
                           )}

@@ -109,6 +109,71 @@ def record_skill_use(
     }
 
 
+@router.get("/skills/{skill_id}/usage-logs")
+def get_usage_logs(
+    skill_id: str,
+    db: Session = Depends(get_db),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> dict:
+    """查询 Skill 使用历史及统计摘要。"""
+    from sqlalchemy import func
+
+    skill = db.get(Skill, skill_id)
+    if skill is None:
+        raise HTTPException(status_code=404, detail="skill not found")
+
+    # 分页查询使用记录
+    logs_stmt = (
+        select(SkillUsageLog)
+        .where(SkillUsageLog.skill_id == skill_id)
+        .order_by(desc(SkillUsageLog.used_at))
+        .offset(offset)
+        .limit(limit)
+    )
+    logs = list(db.execute(logs_stmt).scalars())
+
+    # 聚合统计
+    stats_stmt = select(
+        func.count(SkillUsageLog.id).label("total"),
+        func.sum(func.case(
+            (SkillUsageLog.outcome == "effective", 1), else_=0
+        )).label("effective_count"),
+        func.sum(func.case(
+            (SkillUsageLog.outcome == "partial", 1), else_=0
+        )).label("partial_count"),
+        func.sum(func.case(
+            (SkillUsageLog.outcome == "ineffective", 1), else_=0
+        )).label("ineffective_count"),
+        func.sum(SkillUsageLog.time_saved_minutes).label("total_time_saved"),
+        func.avg(SkillUsageLog.time_saved_minutes).label("avg_time_saved"),
+    ).where(SkillUsageLog.skill_id == skill_id)
+    stats_row = db.execute(stats_stmt).one()
+
+    return {
+        "skill_id": skill_id,
+        "skill_name": skill.name,
+        "total": stats_row.total or 0,
+        "effective_count": stats_row.effective_count or 0,
+        "partial_count": stats_row.partial_count or 0,
+        "ineffective_count": stats_row.ineffective_count or 0,
+        "total_time_saved": stats_row.total_time_saved or 0,
+        "avg_time_saved": round(stats_row.avg_time_saved or 0, 1),
+        "avg_effectiveness": skill.avg_effectiveness,
+        "logs": [
+            {
+                "id": log.id,
+                "outcome": log.outcome,
+                "event_id": log.event_id,
+                "time_saved_minutes": log.time_saved_minutes,
+                "notes": log.notes,
+                "used_at": log.used_at.isoformat() if log.used_at else None,
+            }
+            for log in logs
+        ],
+    }
+
+
 @router.patch("/skills/{skill_id}/toggle", response_model=SkillRead)
 def toggle_skill(skill_id: str, db: Session = Depends(get_db)) -> Skill:
     """切换 Skill 的启用/禁用状态。"""

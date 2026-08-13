@@ -51,6 +51,8 @@ export const api = {
     request<any>(`/skills/mine/patterns?days=${days}&min_count=${minCount}`),
   confirmMinedSkill: (data: any) =>
     request<any>('/skills/mine/confirm', { method: 'POST', body: JSON.stringify(data) }),
+  skillUsageLogs: (id: string, limit = 20) =>
+    request<any>(`/skills/${id}/usage-logs?limit=${limit}`),
 
   // Insights
   insightsSummary: (period: string) => request<any>(`/insights/summary?period=${period}`),
