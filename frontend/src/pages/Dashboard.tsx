@@ -336,7 +336,7 @@ export default function Dashboard({ period }: DashboardProps) {
         <CardContent>
           {dailyTimeData.length > 0 ? (
             <ResponsiveContainer width="100%" height={240}>
-              <AreaChart data={dailyTimeData} margin={{ left: 10, right: 20, top: 5, bottom: 5 }}>
+              <AreaChart data={dailyTimeData.map(d => ({ ...d, value: Math.max(d.value, 1) }))} margin={{ left: 10, right: 20, top: 5, bottom: 5 }}>
                 <defs>
                   <linearGradient id="gradPurple" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor={PRIMARY} stopOpacity={0.3} />
@@ -345,9 +345,9 @@ export default function Dashboard({ period }: DashboardProps) {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Area type="monotone" dataKey="value" stroke={PRIMARY} fill="url(#gradPurple)" strokeWidth={2} name="minutes" />
+                <YAxis scale="log" domain={[1, 'auto']} tick={{ fontSize: 11 }} allowDecimals={false} />
+                <Tooltip formatter={(val) => [`${val} min`, 'Time']} />
+                <Area type="natural" dataKey="value" stroke={PRIMARY} fill="url(#gradPurple)" strokeWidth={2.5} name="minutes" dot={{ r: 3, fill: PRIMARY }} activeDot={{ r: 5 }} />
               </AreaChart>
             </ResponsiveContainer>
           ) : (
