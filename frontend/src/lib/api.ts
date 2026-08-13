@@ -101,6 +101,8 @@ export const api = {
   // System
   health: () => request<any>('/health'),
   config: () => request<any>('/config'),
+  updateConfig: (data: Record<string, any>) =>
+    request<any>('/config', { method: 'PUT', body: JSON.stringify(data) }),
   llmHealth: () => request<any>('/llm/health'),
   dbHealth: () => request<any>('/health/db'),
   vectorHealth: () => request<any>('/health/vector'),

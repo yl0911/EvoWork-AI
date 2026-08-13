@@ -81,6 +81,7 @@ app.include_router(collectors_router, prefix="/api")
 from datetime import datetime, timezone  # noqa: E402
 
 from fastapi import APIRouter  # noqa: E402
+from app.schemas.config import ConfigUpdate  # noqa: E402
 
 _system_router = APIRouter(prefix="/api", tags=["system"])
 
@@ -118,6 +119,59 @@ def runtime_config() -> dict:
             "type": settings.storage_type,
             "path": settings.storage_path,
         },
+        "collector": {
+            "api_key_configured": bool(settings.collector_api_key),
+            "max_batch_size": settings.collector_max_batch_size,
+        },
+    }
+
+
+@_system_router.put("/config")
+def update_config(payload: ConfigUpdate) -> dict:
+    """运行时更新配置：修改内存 settings → 持久化到 .env → 清除 Gateway 缓存。"""
+    from app.schemas.config import _FIELD_TO_ENV
+    from app.core.dependencies import (
+        get_llm_gateway as _llm_factory,
+        get_db_gateway as _db_factory,
+        get_vector_gateway as _vec_factory,
+    )
+
+    updates = payload.model_dump(exclude_none=True)
+    if not updates:
+        return {"updated": 0, "message": "No changes"}
+
+    # 1) 更新内存中的 settings
+    for field, value in updates.items():
+        if hasattr(settings, field):
+            setattr(settings, field, value)
+
+    # 2) 持久化到 .env 文件（合并更新）
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    existing: dict[str, str] = {}
+    if env_path.is_file():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") and "=" in stripped:
+                key, _, val = stripped.partition("=")
+                existing[key.strip()] = val.strip()
+
+    for field, value in updates.items():
+        env_key = _FIELD_TO_ENV.get(field)
+        if env_key:
+            existing[env_key] = str(value)
+
+    env_content = "\n".join(f"{k}={v}" for k, v in existing.items()) + "\n"
+    env_path.write_text(env_content, encoding="utf-8")
+
+    # 3) 清除 Gateway 缓存，使下次请求用新配置重建
+    _llm_factory.cache_clear()
+    _db_factory.cache_clear()
+    _vec_factory.cache_clear()
+
+    return {
+        "updated": len(updates),
+        "fields": list(updates.keys()),
+        "message": f"Updated {len(updates)} field(s), gateways will reload on next request.",
     }
 
 

@@ -6,8 +6,10 @@ import {
   Database, Cpu, Layers, HardDrive, CheckCircle, XCircle, RefreshCw,
   Radio, GitBranch, Terminal, Monitor, Globe, Code2, UserCircle,
   ChevronDown, ChevronUp, Copy, Check, Upload, Clock, AlertTriangle, Search,
+  Settings, Save, Loader2,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 
 const PRIMARY = 'hsl(262, 83%, 58%)';
@@ -194,6 +196,16 @@ export default function Config() {
   const [loading, setLoading] = useState(true);
   const [expandedGuide, setExpandedGuide] = useState<string | null>(null);
   const [reindexing, setReindexing] = useState(false);
+
+  /* ── Settings editor state ── */
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [formLlmProvider, setFormLlmProvider] = useState('');
+  const [formLlmBaseUrl, setFormLlmBaseUrl] = useState('');
+  const [formLlmModel, setFormLlmModel] = useState('');
+  const [formLlmApiKey, setFormLlmApiKey] = useState('');
+  const [formCollectorApiKey, setFormCollectorApiKey] = useState('');
+  const [formCollectorBatchSize, setFormCollectorBatchSize] = useState(500);
   const { toast } = useToast();
 
   const fetchAll = async () => {
@@ -228,12 +240,64 @@ export default function Config() {
     setReindexing(false);
   };
 
+  /* ── Settings editor handlers ── */
+  function populateForm(c: any) {
+    if (!c) return;
+    setFormLlmProvider(c.llm?.provider ?? '');
+    setFormLlmBaseUrl(c.llm?.base_url ?? '');
+    setFormLlmModel(c.llm?.model ?? '');
+    setFormLlmApiKey('');  // never pre-fill secrets
+    setFormCollectorApiKey('');  // never pre-fill secrets
+    setFormCollectorBatchSize(c.collector?.max_batch_size ?? 500);
+  }
+
+  function handleOpenSettings() {
+    populateForm(config);
+    setSettingsOpen(true);
+  }
+
+  const handleSaveSettings = async () => {
+    setSaving(true);
+    try {
+      const payload: Record<string, any> = {};
+      if (formLlmProvider !== (config?.llm?.provider ?? '')) payload.llm_provider = formLlmProvider;
+      if (formLlmBaseUrl !== (config?.llm?.base_url ?? '')) payload.llm_base_url = formLlmBaseUrl;
+      if (formLlmModel !== (config?.llm?.model ?? '')) payload.llm_model = formLlmModel;
+      if (formLlmApiKey) payload.llm_api_key = formLlmApiKey;
+      if (formCollectorApiKey) payload.collector_api_key = formCollectorApiKey;
+      if (formCollectorBatchSize !== (config?.collector?.max_batch_size ?? 500)) payload.collector_max_batch_size = formCollectorBatchSize;
+
+      if (Object.keys(payload).length === 0) {
+        toast({ title: '没有变更', description: '未修改任何配置项', variant: 'success' });
+        setSaving(false);
+        return;
+      }
+
+      const res = await api.updateConfig(payload);
+      toast({
+        title: '配置已保存',
+        description: `已更新 ${res.updated} 项，Gateway 将在下次请求时自动重载`,
+        variant: 'success',
+      });
+      setSettingsOpen(false);
+      // 刷新配置和健康状态
+      await fetchAll();
+    } catch (err) {
+      toast({ title: '保存失败', description: String((err as any)?.message || err), variant: 'destructive' });
+    }
+    setSaving(false);
+  };
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">系统连接</h2>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleOpenSettings}>
+            <Settings className="mr-2 h-4 w-4" />
+            设置
+          </Button>
           <Button variant="outline" size="sm" onClick={handleReindex} disabled={reindexing}>
             <Search className={`mr-2 h-4 w-4 ${reindexing ? 'animate-spin' : ''}`} />
             重建索引
@@ -244,6 +308,107 @@ export default function Config() {
           </Button>
         </div>
       </div>
+
+      {/* Settings Editor (expandable) */}
+      {settingsOpen && (
+        <Card className="border-primary/30">
+          <CardHeader className="pb-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Settings className="h-4 w-4" style={{ color: PRIMARY }} />
+                <CardTitle className="text-base">系统设置</CardTitle>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setSettingsOpen(false)}>
+                <XCircle className="h-4 w-4" />
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* LLM Settings */}
+            <div>
+              <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                <Cpu className="h-3.5 w-3.5" style={{ color: PRIMARY }} />
+                LLM Gateway
+              </h4>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Provider</label>
+                  <Input
+                    value={formLlmProvider}
+                    onChange={(e) => setFormLlmProvider(e.target.value)}
+                    placeholder="openai_compatible"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Model</label>
+                  <Input
+                    value={formLlmModel}
+                    onChange={(e) => setFormLlmModel(e.target.value)}
+                    placeholder="gpt-4o"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="mb-1 block text-xs text-muted-foreground">Base URL</label>
+                  <Input
+                    value={formLlmBaseUrl}
+                    onChange={(e) => setFormLlmBaseUrl(e.target.value)}
+                    placeholder="https://api.openai.com/v1"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="mb-1 block text-xs text-muted-foreground">API Key <span className="text-muted-foreground/60">(留空则不修改)</span></label>
+                  <Input
+                    type="password"
+                    value={formLlmApiKey}
+                    onChange={(e) => setFormLlmApiKey(e.target.value)}
+                    placeholder="sk-..."
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Collector Settings */}
+            <div>
+              <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                <Radio className="h-3.5 w-3.5" style={{ color: PRIMARY }} />
+                数据采集
+              </h4>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Collector API Key <span className="text-muted-foreground/60">(留空 = 无认证)</span></label>
+                  <Input
+                    type="password"
+                    value={formCollectorApiKey}
+                    onChange={(e) => setFormCollectorApiKey(e.target.value)}
+                    placeholder="输入新的 API Key 或留空"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Max Batch Size</label>
+                  <Input
+                    type="number"
+                    value={formCollectorBatchSize}
+                    onChange={(e) => setFormCollectorBatchSize(Number(e.target.value))}
+                    min={1}
+                    max={5000}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Save / Cancel */}
+            <div className="flex items-center justify-end gap-3 border-t pt-4">
+              <Button variant="outline" size="sm" onClick={() => setSettingsOpen(false)}>
+                取消
+              </Button>
+              <Button size="sm" onClick={handleSaveSettings} disabled={saving}>
+                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                保存配置
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Infrastructure Cards */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">

@@ -1,0 +1,39 @@
+"""系统配置相关 Schema。"""
+
+from __future__ import annotations
+
+from pydantic import BaseModel
+
+
+class ConfigUpdate(BaseModel):
+    """运行时配置更新，所有字段可选（部分更新）。"""
+
+    # LLM Gateway
+    llm_provider: str | None = None
+    llm_base_url: str | None = None
+    llm_api_key: str | None = None
+    llm_model: str | None = None
+
+    # Collector Security
+    collector_api_key: str | None = None
+    collector_max_batch_size: int | None = None
+
+
+# Settings 字段名 → .env 键名 的映射
+_FIELD_TO_ENV: dict[str, str] = {
+    "app_name": "APP_NAME",
+    "app_env": "APP_ENV",
+    "app_secret_key": "APP_SECRET_KEY",
+    "llm_provider": "LLM_PROVIDER",
+    "llm_base_url": "LLM_BASE_URL",
+    "llm_api_key": "LLM_API_KEY",
+    "llm_model": "LLM_MODEL",
+    "database_url": "DATABASE_URL",
+    "vector_store": "VECTOR_STORE",
+    "vector_store_path": "VECTOR_STORE_PATH",
+    "vector_store_url": "VECTOR_STORE_URL",
+    "storage_type": "STORAGE_TYPE",
+    "storage_path": "STORAGE_PATH",
+    "collector_api_key": "COLLECTOR_API_KEY",
+    "collector_max_batch_size": "COLLECTOR_MAX_BATCH_SIZE",
+}
