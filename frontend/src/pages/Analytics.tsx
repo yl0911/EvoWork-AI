@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LineChart, Line, Legend } from 'recharts';
 import { TrendingUp, AlertTriangle, Target, Terminal, Clock, CalendarRange } from 'lucide-react';
 import { api } from '@/lib/api';
 import TimelineGantt from '@/components/TimelineGantt';
@@ -48,6 +48,18 @@ const BAR_COLORS = [
 ];
 
 /* ---------- helpers ---------- */
+interface TrendPoint {
+  date: string;
+  label: string;
+  minutes: number;
+  events: number;
+}
+
+function fmtTrendDate(iso: string): string {
+  const [, m, d] = iso.split('-');
+  return `${parseInt(m)}/${parseInt(d)}`;
+}
+
 function normalizeHabit(data: any): HabitEntry[] {
   if (data?.profile && typeof data.profile === 'object' && !Array.isArray(data.profile)) {
     return Object.entries(data.profile)
@@ -93,6 +105,7 @@ export default function Analytics({ period }: AnalyticsProps) {
   const [patterns, setPatterns] = useState<PatternData | null>(null);
   const [timelineData, setTimelineData] = useState<any>(null);
   const [timelineGroupBy, setTimelineGroupBy] = useState<'project' | 'event_type' | 'source'>('project');
+  const [trendData, setTrendData] = useState<TrendPoint[]>([]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +130,20 @@ export default function Analytics({ period }: AnalyticsProps) {
           setEfficiency(normalizeEfficiency(full.efficiency_metrics));
           setShell(full.shell_commands ?? null);
           setPatterns(full.work_patterns ?? null);
+
+          // Build daily trend data from daily_minutes and daily_event_count
+          const dailyMinutes: Record<string, number> = full.daily_minutes ?? {};
+          const dailyEvents: Record<string, number> = full.work_patterns?.daily_event_count ?? {};
+          const allDates = new Set([...Object.keys(dailyMinutes), ...Object.keys(dailyEvents)]);
+          const sorted = Array.from(allDates).sort();
+          setTrendData(
+            sorted.map((date) => ({
+              date,
+              label: fmtTrendDate(date),
+              minutes: dailyMinutes[date] ?? 0,
+              events: dailyEvents[date] ?? 0,
+            })),
+          );
         }
 
         setTimelineData(timelineRes.status === 'fulfilled' ? timelineRes.value : null);
@@ -155,6 +182,66 @@ export default function Analytics({ period }: AnalyticsProps) {
 
       {error && <p className="text-sm text-destructive">{error}</p>}
       {loading && <p className="text-sm text-muted-foreground">Loading analytics...</p>}
+
+      {/* ===== Daily Efficiency Trend ===== */}
+      <Card>
+        <CardHeader className="flex-row items-center gap-2 space-y-0">
+          <TrendingUp className="h-5 w-5 text-primary" />
+          <CardTitle>每日效率趋势</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {trendData.length === 0 && !loading ? (
+            <p className="text-sm text-muted-foreground">No trend data for this period.</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={trendData} margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                <YAxis
+                  yAxisId="left"
+                  tick={{ fontSize: 11 }}
+                  allowDecimals={false}
+                  label={{ value: 'Minutes', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: '#8b5cf6' } }}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tick={{ fontSize: 11 }}
+                  allowDecimals={false}
+                  label={{ value: 'Events', angle: 90, position: 'insideRight', style: { fontSize: 11, fill: '#3b82f6' } }}
+                />
+                <Tooltip
+                  labelStyle={{ fontWeight: 600 }}
+                  formatter={(value, name) =>
+                    name === 'minutes' ? [`${value} min`, 'Time'] : [`${value}`, 'Events']
+                  }
+                />
+                <Legend />
+                <Line
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="minutes"
+                  stroke="#8b5cf6"
+                  strokeWidth={2.5}
+                  dot={{ r: 3, fill: '#8b5cf6' }}
+                  activeDot={{ r: 5 }}
+                  name="minutes"
+                />
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="events"
+                  stroke="#3b82f6"
+                  strokeWidth={2.5}
+                  dot={{ r: 3, fill: '#3b82f6' }}
+                  activeDot={{ r: 5 }}
+                  name="events"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
 
       {/* ===== Timeline ===== */}
       <Card>

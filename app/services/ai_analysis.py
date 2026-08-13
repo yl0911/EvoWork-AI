@@ -234,6 +234,32 @@ def generate_period_review(db: Session, period: str = "week", refresh: bool = Fa
     insights = summarize_insights(db, period=period)
     gateway = get_llm_gateway()
 
+    # ── 上一周期对比 ──
+    prev_period = {"week": "month", "month": "year", "year": "year"}.get(period, "year")
+    prev_insights = summarize_insights(db, period=prev_period)
+    comparison_lines = []
+    if prev_insights:
+        cur_events = insights.get("total_events", 0)
+        prev_events = prev_insights.get("total_events", 0)
+        cur_minutes = insights.get("total_minutes", 0)
+        prev_minutes = prev_insights.get("total_minutes", 0)
+        cur_skills = insights.get("skill_count", 0)
+        prev_skills = prev_insights.get("skill_count", 0)
+
+        def _delta(cur, prev):
+            if prev == 0:
+                return "新增" if cur > 0 else "持平"
+            pct = round((cur - prev) / prev * 100)
+            return f"+{pct}%" if pct >= 0 else f"{pct}%"
+
+        comparison_lines.append(f"事件数: {cur_events} (vs 上周期 {prev_events}, {_delta(cur_events, prev_events)})")
+        comparison_lines.append(f"总时长: {cur_minutes}min (vs 上周期 {prev_minutes}min, {_delta(cur_minutes, prev_minutes)})")
+        comparison_lines.append(f"Skill 数: {cur_skills} (vs 上周期 {prev_skills}, {_delta(cur_skills, prev_skills)})")
+
+    comparison_context = ""
+    if comparison_lines:
+        comparison_context = "--- 环比数据（当前 vs 上一周期）---\n" + "\n".join(comparison_lines)
+
     # 获取额外分析数据
     analytics_context = ""
     try:
@@ -290,10 +316,12 @@ def generate_period_review(db: Session, period: str = "week", refresh: bool = Fa
         if cached:
             return _cached_response(cached)
 
-    prompt = f"""请基于下面的 WorkEvent、统计信息和量化分析数据，生成一个个人复盘。
+    prompt = f"""请基于下面的 WorkEvent、统计信息、环比对比和量化分析数据，生成一个个人复盘。
 
 统计信息:
 {insights}
+
+{comparison_context}
 
 {analytics_context}
 
@@ -302,10 +330,11 @@ def generate_period_review(db: Session, period: str = "week", refresh: bool = Fa
 
 输出格式:
 1. 本周期工作/学习概览
-2. 观察到的习惯模式（结合终端活动和工作节奏数据）
-3. 可能的认知卡点或技术壁垒（特别关注频繁失败的命令和重复问题）
-4. 建议沉淀的 Skill（从高频操作和重复问题中提炼可复用流程）
-5. 下一步 3 个行动
+2. 趋势变化（对比上一周期的环比数据，指出哪些方面在进步、哪些在退步，给出可能的原因）
+3. 已改善的点（从数据变化中识别出用户已经做出的优化，如新增 Skill、减少重复操作等）
+4. 可优化的点（识别当前流程中仍存在的低效环节，给出具体可操作的改进建议）
+5. 建议沉淀的 Skill（从高频操作和重复问题中提炼可复用流程）
+6. 下一步 3 个行动
 
 要求:
 - 不要使用监控、考核、排名语气。

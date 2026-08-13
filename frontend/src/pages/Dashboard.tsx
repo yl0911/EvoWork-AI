@@ -45,12 +45,13 @@ function fmtDate(iso: string): string {
   return `${parseInt(m)}/${parseInt(d)}`;
 }
 
-function fmtDelta(cur: number, prev: number): { text: string; positive: boolean } {
-  if (prev === 0) return cur > 0 ? { text: '+new', positive: true } : { text: '—', positive: true };
+function fmtDelta(cur: number, prev: number): { text: string; positive: boolean; prev: number } {
+  if (prev === 0) return cur > 0 ? { text: '+new', positive: true, prev: 0 } : { text: '—', positive: true, prev: 0 };
   const pct = Math.round(((cur - prev) / prev) * 100);
   return {
     text: pct >= 0 ? `+${pct}%` : `${pct}%`,
     positive: pct >= 0,
+    prev,
   };
 }
 
@@ -149,8 +150,10 @@ export default function Dashboard({ period }: DashboardProps) {
   /* ── delta vs broader period ── */
   const prevEvents  = prevInsights?.total_events  ?? 0;
   const prevMinutes = prevInsights?.total_minutes ?? 0;
+  const prevSkills  = prevInsights?.skill_count   ?? 0;
   const evDelta     = fmtDelta(totalEvents, prevEvents);
   const minDelta    = fmtDelta(totalMinutes, prevMinutes);
+  const skillDelta  = fmtDelta(skillCount, prevSkills);
 
   /* ── chart data ── */
   const sourceData     = toChartData(insights?.source_minutes);
@@ -187,7 +190,7 @@ export default function Dashboard({ period }: DashboardProps) {
             {prevInsights && (
               <p className={`mt-1 flex items-center text-xs ${evDelta.positive ? 'text-green-600' : 'text-red-500'}`}>
                 {evDelta.positive ? <ArrowUpRight className="mr-0.5 h-3 w-3" /> : <ArrowDownRight className="mr-0.5 h-3 w-3" />}
-                {evDelta.text} {prevLabel[period]}
+                {evDelta.text} {prevLabel[period]}{evDelta.prev > 0 ? ` (prev: ${evDelta.prev})` : ''}
               </p>
             )}
           </CardContent>
@@ -203,7 +206,7 @@ export default function Dashboard({ period }: DashboardProps) {
             {prevInsights && (
               <p className={`mt-1 flex items-center text-xs ${minDelta.positive ? 'text-green-600' : 'text-red-500'}`}>
                 {minDelta.positive ? <ArrowUpRight className="mr-0.5 h-3 w-3" /> : <ArrowDownRight className="mr-0.5 h-3 w-3" />}
-                {minDelta.text} {prevLabel[period]}
+                {minDelta.text} {prevLabel[period]}{minDelta.prev > 0 ? ` (prev: ${minDelta.prev})` : ''}
               </p>
             )}
           </CardContent>
@@ -216,6 +219,12 @@ export default function Dashboard({ period }: DashboardProps) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{skillCount}</div>
+            {prevInsights && (
+              <p className={`mt-1 flex items-center text-xs ${skillDelta.positive ? 'text-green-600' : 'text-red-500'}`}>
+                {skillDelta.positive ? <ArrowUpRight className="mr-0.5 h-3 w-3" /> : <ArrowDownRight className="mr-0.5 h-3 w-3" />}
+                {skillDelta.text} {prevLabel[period]}{skillDelta.prev > 0 ? ` (prev: ${skillDelta.prev})` : ''}
+              </p>
+            )}
           </CardContent>
         </Card>
 
