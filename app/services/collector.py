@@ -10,11 +10,14 @@ from sqlalchemy.orm import Session
 
 from app.models import WorkEvent
 from app.models.work_event import infer_event_layer
+from app.services.collector_guard import SOURCE_SKILL_MAP
 from app.services.indexing import index_event
 from app.schemas.collector import (
     ActivityWatchEventPayload,
     BatchIngestResult,
+    BrowserEventPayload,
     GitCommitPayload,
+    IdeEventPayload,
     ImportItem,
     IngestResult,
     ShellCommandPayload,
@@ -326,6 +329,109 @@ def _infer_project_from_title(title: str, url: str | None = None) -> str | None:
     return None
 
 
+# ── Browser / IDE 辅助函数 ────────────────────────────
+
+def _extract_domain(url: str) -> str:
+    """从 URL 提取域名（去掉 www 前缀）。"""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
+        if host.startswith("www."):
+            host = host[4:]
+        return host
+    except Exception:
+        return url
+
+
+_IDE_EXT_MAP: dict[str, str] = {
+    ".py": "python", ".pyw": "python", ".pyx": "python",
+    ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript",
+    ".ts": "typescript", ".tsx": "typescript",
+    ".go": "go", ".rs": "rust", ".rb": "ruby",
+    ".java": "java", ".kt": "kotlin", ".kts": "kotlin",
+    ".cs": "csharp", ".cpp": "cpp", ".cc": "cpp", ".c": "c", ".h": "c",
+    ".hpp": "cpp", ".swift": "swift", ".scala": "scala",
+    ".html": "html", ".htm": "html", ".css": "css", ".scss": "scss",
+    ".sass": "scss", ".less": "less",
+    ".json": "json", ".yaml": "yaml", ".yml": "yaml", ".toml": "toml",
+    ".xml": "xml", ".sql": "sql", ".graphql": "graphql",
+    ".sh": "shell", ".bash": "shell", ".zsh": "shell", ".ps1": "powershell",
+    ".md": "markdown", ".rst": "rst", ".txt": "text",
+    ".dockerfile": "docker", ".tf": "terraform",
+    ".vue": "vue", ".svelte": "svelte",
+    ".dart": "dart", ".lua": "lua", ".php": "php",
+    ".r": "r", ".ipynb": "jupyter",
+}
+
+_IDE_DEBUG_PATTERNS = re.compile(
+    r"(test_|_test\.|spec\.|conftest|pytest|unittest|jest|__tests__|fixture)", re.I,
+)
+_IDE_CONFIG_FILES = {
+    "package.json", "tsconfig.json", "pyproject.toml", "setup.py", "setup.cfg",
+    "requirements.txt", "makefile", "dockerfile", "docker-compose.yml",
+    ".env", ".gitignore", "webpack.config.js", "vite.config.ts",
+}
+
+
+def _infer_language(file_path: str) -> str:
+    """从文件扩展名推断编程语言。"""
+    import os
+    _, ext = os.path.splitext(file_path.lower())
+    return _IDE_EXT_MAP.get(ext, "")
+
+
+def _infer_ide_project(file_path: str) -> str | None:
+    """从绝对路径推断项目名（取倒数第二或第三级目录）。"""
+    path = file_path.replace("\\", "/")
+    parts = [p for p in path.split("/") if p]
+    # 典型路径: /Users/name/project/src/file.py → project
+    if len(parts) >= 3:
+        # 跳过常见系统目录
+        _skip = {"users", "home", "documents", "desktop", "src", "lib", "app"}
+        for i in range(len(parts) - 2, max(len(parts) - 5, -1), -1):
+            if i >= 0 and parts[i].lower() not in _skip:
+                return parts[i]
+    return None
+
+
+def _ide_action_priority(action: str) -> int:
+    """IDE action 优先级（用于聚合时保留最重要的 action）。"""
+    return {"save": 3, "edit": 2, "open": 1, "focus": 1, "close": 0}.get(action, 1)
+
+
+def _infer_ide_event(file_path: str, language: str, action: str) -> tuple[str, list[str]]:
+    """推断 IDE 事件类型和标签。
+
+    Returns: (event_type, tags)
+    """
+    import os
+    filename = os.path.basename(file_path).lower()
+    tags: list[str] = []
+
+    if language:
+        tags.append(language)
+
+    # 测试文件 → debug
+    if _IDE_DEBUG_PATTERNS.search(file_path):
+        return "debug", tags + ["test"]
+
+    # 配置文件 → config
+    if filename in _IDE_CONFIG_FILES:
+        return "config", tags + ["config"]
+
+    # Markdown/RST → writing
+    if language in ("markdown", "rst", "text"):
+        return "writing", tags + ["docs"]
+
+    # Dockerfile/Terraform → ops
+    if language in ("docker", "terraform"):
+        return "ops", tags + ["devops"]
+
+    # 默认 → coding
+    return "coding", tags
+
+
 class CollectorService:
     def __init__(self, db: Session):
         self.db = db
@@ -354,6 +460,7 @@ class CollectorService:
             tags=auto_tags + ([payload.branch] if payload.branch else []),
             duration_minutes=0,
             outcome="resolved",
+            linked_skill_id=SOURCE_SKILL_MAP.get("git"),
             started_at=started_at,
             collector_metadata={
                 "collector": "git",
@@ -409,6 +516,7 @@ class CollectorService:
             tags=item.tags,
             duration_minutes=item.duration_minutes,
             outcome=item.outcome,
+            linked_skill_id=SOURCE_SKILL_MAP.get(source),
             started_at=started_at,
             collector_metadata={
                 "collector": source,
@@ -453,6 +561,7 @@ class CollectorService:
             tags=auto_tags + ([payload.shell_type] if payload.shell_type else []),
             duration_minutes=0,
             outcome=outcome,
+            linked_skill_id=SOURCE_SKILL_MAP.get("shell"),
             started_at=started_at,
             collector_metadata={
                 "collector": "shell",
@@ -598,6 +707,7 @@ class CollectorService:
             tags=auto_tags + ["activitywatch"],
             duration_minutes=duration_min,
             outcome="resolved",
+            linked_skill_id=SOURCE_SKILL_MAP.get("activitywatch"),
             started_at=started_at,
             collector_metadata={
                 "collector": "activitywatch",
@@ -693,3 +803,298 @@ class CollectorService:
             return None
         parts = cwd.replace("\\", "/").rstrip("/").rsplit("/", 1)
         return parts[-1] if parts else None
+
+    # ── Browser ──────────────────────────────────────
+
+    def ingest_browser_batch(self, events: list[BrowserEventPayload]) -> BatchIngestResult:
+        """批量导入浏览器扩展事件。
+
+        流程：按 (domain, title) 聚合相邻事件 → 分类 → 去重 → 入库。
+        """
+        sessions = self._aggregate_browser_sessions(events)
+        results: list[IngestResult] = []
+        for session in sessions:
+            try:
+                r = self._ingest_browser_session(session)
+                results.append(r)
+            except Exception as e:
+                results.append(IngestResult(status="error", detail=str(e)))
+
+        created = sum(1 for r in results if r.status == "created")
+        skipped = sum(1 for r in results if r.status == "skipped_duplicate")
+        errors = sum(1 for r in results if r.status == "error")
+        return BatchIngestResult(
+            total=len(sessions), created=created, skipped=skipped, errors=errors, results=results,
+        )
+
+    @staticmethod
+    def _aggregate_browser_sessions(
+        events: list[BrowserEventPayload], gap_seconds: float = 300,
+    ) -> list[dict]:
+        """按 (domain, title) 聚合相邻浏览器事件为 session。"""
+        if not events:
+            return []
+        sorted_events = sorted(events, key=lambda e: e.timestamp or utc_now())
+        sessions: list[dict] = []
+        current: dict | None = None
+
+        for ev in sorted_events:
+            domain = _extract_domain(ev.url)
+            key = (domain, ev.title.strip()[:100] if ev.title else "")
+            ts = ev.timestamp or utc_now()
+            dur = ev.duration_seconds
+
+            if current and current["_key"] == key:
+                gap = (ts - current["_end"]).total_seconds()
+                if gap <= gap_seconds:
+                    current["duration_seconds"] += dur
+                    from datetime import timedelta
+                    current["_end"] = ts + timedelta(seconds=dur)
+                    continue
+
+            if current:
+                sessions.append(current)
+            from datetime import timedelta
+            current = {
+                "_key": key,
+                "url": ev.url,
+                "title": ev.title,
+                "domain": domain,
+                "started_at": ts,
+                "duration_seconds": dur,
+                "_end": ts + timedelta(seconds=dur),
+                "tab_id": ev.tab_id,
+            }
+
+        if current:
+            sessions.append(current)
+        return sessions
+
+    def _ingest_browser_session(self, session: dict) -> IngestResult:
+        """将一个浏览器 session 转为 WorkEvent。"""
+        url = session["url"]
+        title = session.get("title", "")
+        domain = session["domain"]
+        started_at = session["started_at"]
+        duration_sec = session["duration_seconds"]
+        duration_min = max(1, round(duration_sec / 60))
+
+        # 过滤太短 (< 15 秒)
+        if duration_sec < 15:
+            return IngestResult(status="skipped_duplicate", detail=f"too short ({duration_sec:.0f}s)")
+
+        # 去重
+        if self._has_browser_overlap(domain, title, started_at, duration_sec):
+            return IngestResult(
+                status="skipped_duplicate",
+                detail=f"overlaps existing: {domain} {title[:30]}",
+            )
+
+        # 复用 _AW_URL_MAP 分类
+        event_type, display_title, auto_tags = _infer_aw_event("", title, url)
+        if event_type == "app_usage":
+            event_type = "browsing"
+            display_title = title[:120] if title else domain
+        project = _infer_project_from_title(title, url)
+
+        event = WorkEvent(
+            event_layer="habit",
+            source="browser",
+            event_type=event_type,
+            title=display_title[:200],
+            content=f"URL: {url}\nTitle: {title}",
+            project=project,
+            tags=auto_tags + ["browser", domain],
+            duration_minutes=duration_min,
+            outcome="resolved",
+            linked_skill_id=SOURCE_SKILL_MAP.get("browser"),
+            started_at=started_at,
+            collector_metadata={
+                "collector": "browser",
+                "domain": domain,
+                "url": url,
+                "duration_seconds": duration_sec,
+                "tab_id": session.get("tab_id"),
+            },
+        )
+        self.db.add(event)
+        self.db.commit()
+        self.db.refresh(event)
+        index_event(event)
+        return IngestResult(event_id=event.id, status="created")
+
+    def _has_browser_overlap(self, domain: str, title: str, started_at: datetime, duration_sec: float) -> bool:
+        """检查浏览器 session 是否与已有事件时间窗口重叠。"""
+        from datetime import timedelta
+        end_at = started_at + timedelta(seconds=duration_sec)
+        end_at_naive = end_at.replace(tzinfo=None)
+        started_naive = started_at.replace(tzinfo=None)
+        stmt = select(WorkEvent).where(
+            WorkEvent.source == "browser",
+            WorkEvent.started_at < end_at_naive,
+        )
+        events = list(self.db.execute(stmt).scalars())
+        for ev in events:
+            meta = ev.collector_metadata or {}
+            if meta.get("domain", "").lower() == domain.lower():
+                ev_dur = meta.get("duration_seconds", 0)
+                ev_start = ev.started_at
+                if ev_start:
+                    ev_start_naive = ev_start.replace(tzinfo=None) if ev_start.tzinfo else ev_start
+                    ev_end = ev_start_naive + timedelta(seconds=ev_dur)
+                    if started_naive < ev_end and end_at_naive > ev_start_naive:
+                        return True
+        return False
+
+    # ── IDE ─────────────────────────────────────────
+
+    def ingest_ide_batch(self, events: list[IdeEventPayload]) -> BatchIngestResult:
+        """批量导入 IDE 扩展事件。
+
+        流程：按 (project, file_path) 聚合相邻事件 → 分类 → 去重 → 入库。
+        """
+        sessions = self._aggregate_ide_sessions(events)
+        results: list[IngestResult] = []
+        for session in sessions:
+            try:
+                r = self._ingest_ide_session(session)
+                results.append(r)
+            except Exception as e:
+                results.append(IngestResult(status="error", detail=str(e)))
+
+        created = sum(1 for r in results if r.status == "created")
+        skipped = sum(1 for r in results if r.status == "skipped_duplicate")
+        errors = sum(1 for r in results if r.status == "error")
+        return BatchIngestResult(
+            total=len(sessions), created=created, skipped=skipped, errors=errors, results=results,
+        )
+
+    @staticmethod
+    def _aggregate_ide_sessions(
+        events: list[IdeEventPayload], gap_seconds: float = 300,
+    ) -> list[dict]:
+        """按 (project, file_path) 聚合相邻 IDE 事件为 session。"""
+        if not events:
+            return []
+        sorted_events = sorted(events, key=lambda e: e.timestamp or utc_now())
+        sessions: list[dict] = []
+        current: dict | None = None
+
+        for ev in sorted_events:
+            project = ev.project or _infer_ide_project(ev.file_path)
+            key = (project or "", ev.file_path.strip())
+            ts = ev.timestamp or utc_now()
+            dur = ev.duration_seconds
+
+            if current and current["_key"] == key:
+                gap = (ts - current["_end"]).total_seconds()
+                if gap <= gap_seconds:
+                    current["duration_seconds"] += dur
+                    current["lines_changed"] += ev.lines_changed
+                    # 保留最重要的 action（save > edit > focus）
+                    if _ide_action_priority(ev.action) > _ide_action_priority(current["action"]):
+                        current["action"] = ev.action
+                    from datetime import timedelta
+                    current["_end"] = ts + timedelta(seconds=dur)
+                    continue
+
+            if current:
+                sessions.append(current)
+            from datetime import timedelta
+            current = {
+                "_key": key,
+                "file_path": ev.file_path,
+                "language": ev.language or _infer_language(ev.file_path),
+                "action": ev.action,
+                "project": project,
+                "editor": ev.editor,
+                "started_at": ts,
+                "duration_seconds": dur,
+                "lines_changed": ev.lines_changed,
+                "_end": ts + timedelta(seconds=dur),
+            }
+
+        if current:
+            sessions.append(current)
+        return sessions
+
+    def _ingest_ide_session(self, session: dict) -> IngestResult:
+        """将一个 IDE session 转为 WorkEvent。"""
+        file_path = session["file_path"]
+        language = session.get("language", "")
+        action = session["action"]
+        project = session.get("project")
+        started_at = session["started_at"]
+        duration_sec = session["duration_seconds"]
+        duration_min = max(1, round(duration_sec / 60))
+        lines = session.get("lines_changed", 0)
+        editor = session.get("editor", "vscode")
+
+        # 过滤太短 (< 10 秒) 且无代码变更的
+        if duration_sec < 10 and lines == 0:
+            return IngestResult(status="skipped_duplicate", detail=f"too short ({duration_sec:.0f}s) no changes")
+
+        # 去重
+        if self._has_ide_overlap(file_path, started_at, duration_sec):
+            return IngestResult(
+                status="skipped_duplicate",
+                detail=f"overlaps existing: {file_path[-60:]}",
+            )
+
+        # 分类
+        event_type, auto_tags = _infer_ide_event(file_path, language, action)
+        filename = file_path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        display_title = f"{action.capitalize()}: {filename}"
+        if lines > 0:
+            display_title += f" (±{lines} lines)"
+
+        event = WorkEvent(
+            event_layer="habit",
+            source="ide",
+            event_type=event_type,
+            title=display_title[:200],
+            content=f"File: {file_path}\nLanguage: {language}\nAction: {action}",
+            project=project,
+            tags=auto_tags + ["ide", editor],
+            duration_minutes=duration_min,
+            outcome="resolved",
+            linked_skill_id=SOURCE_SKILL_MAP.get("ide"),
+            started_at=started_at,
+            collector_metadata={
+                "collector": "ide",
+                "file_path": file_path,
+                "language": language,
+                "action": action,
+                "lines_changed": lines,
+                "editor": editor,
+                "duration_seconds": duration_sec,
+            },
+        )
+        self.db.add(event)
+        self.db.commit()
+        self.db.refresh(event)
+        index_event(event)
+        return IngestResult(event_id=event.id, status="created")
+
+    def _has_ide_overlap(self, file_path: str, started_at: datetime, duration_sec: float) -> bool:
+        """检查 IDE session 是否与已有事件时间窗口重叠。"""
+        from datetime import timedelta
+        end_at = started_at + timedelta(seconds=duration_sec)
+        end_at_naive = end_at.replace(tzinfo=None)
+        started_naive = started_at.replace(tzinfo=None)
+        stmt = select(WorkEvent).where(
+            WorkEvent.source == "ide",
+            WorkEvent.started_at < end_at_naive,
+        )
+        events = list(self.db.execute(stmt).scalars())
+        for ev in events:
+            meta = ev.collector_metadata or {}
+            if meta.get("file_path", "") == file_path:
+                ev_dur = meta.get("duration_seconds", 0)
+                ev_start = ev.started_at
+                if ev_start:
+                    ev_start_naive = ev_start.replace(tzinfo=None) if ev_start.tzinfo else ev_start
+                    ev_end = ev_start_naive + timedelta(seconds=ev_dur)
+                    if started_naive < ev_end and end_at_naive > ev_start_naive:
+                        return True
+        return False

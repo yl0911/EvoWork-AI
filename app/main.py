@@ -28,6 +28,7 @@ from app.migrations.migrate_phase4 import migrate as run_phase4_migration
 from app.migrations.migrate_phase5 import migrate as run_phase5_migration
 from app.services.bootstrap import seed_demo_data
 from app.services.indexing import reindex_all
+from app.services.search import get_search_service
 from app.services.system_skills import seed_system_skills
 
 
@@ -40,6 +41,8 @@ async def lifespan(app: FastAPI):
     run_phase5_migration(settings.database_url)
     db_gw = get_db_gateway()
     db_gw.init_db()
+    # 初始化 FTS5 全文搜索表
+    get_search_service().ensure_tables()
     with db_gw.get_session_context() as db:
         seed_demo_data(db)
         seed_system_skills(db)
@@ -49,8 +52,9 @@ async def lifespan(app: FastAPI):
         events = list(db.execute(select(WorkEvent)).scalars())
         skills = list(db.execute(select(Skill)).scalars())
         result = reindex_all(events, skills)
-        if result.get("status") == "ok":
-            print(f"[Vector] Reindexed: {result['events']} events, {result['skills']} skills")
+        if result.get("status") in ("ok", "vector_not_configured"):
+            print(f"[Index] Vector: {result.get('events', 0)} events, {result.get('skills', 0)} skills | "
+                  f"FTS5: {result.get('fts_events', 0)} events, {result.get('fts_skills', 0)} skills")
     yield
 
 

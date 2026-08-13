@@ -117,6 +117,42 @@ const SETUP_GUIDES: Record<string, { title: string; steps: SetupStep[] }> = {
       },
     ],
   },
+  browser: {
+    title: '浏览器扩展安装',
+    steps: [
+      {
+        title: '1. 加载扩展',
+        description: '打开 Chrome → 地址栏输入 chrome://extensions → 开启「开发者模式」→ 点击「加载已解压的扩展程序」→ 选择 collectors/chrome-extension 目录',
+      },
+      {
+        title: '2. 配置服务器地址',
+        description: '点击扩展图标 → 输入 EvoWork 服务器地址（默认 http://localhost:8000）→ 确认连接状态变为绿色',
+      },
+      {
+        title: '3. 验证数据采集',
+        description: '浏览几个页面后，点击扩展图标查看缓冲事件数，点击「Send Now」→ 到 EvoWork Events 页面确认 browser 来源事件已出现',
+      },
+    ],
+  },
+  ide: {
+    title: 'VS Code 扩展安装',
+    steps: [
+      {
+        title: '1. 编译扩展',
+        command: 'cd collectors/vscode-extension && npm install && npm run compile',
+        description: '安装依赖并编译 TypeScript',
+      },
+      {
+        title: '2. 打包并安装',
+        command: 'npx @vscode/vsce package',
+        description: '生成 .vsix 文件，然后在 VS Code 中按 Ctrl+Shift+P → Extensions: Install from VSIX → 选择生成的文件',
+      },
+      {
+        title: '3. 配置服务器',
+        description: '打开 VS Code Settings → 搜索 evowork → 设置 Server URL → 重启 VS Code。状态栏右侧会显示 EvoWork 追踪状态',
+      },
+    ],
+  },
 };
 
 /* ── Copy Button ─────────────────────────────────────── */

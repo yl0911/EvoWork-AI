@@ -11,7 +11,9 @@ from app.models import WorkEvent
 from app.schemas.collector import (
     ActivityWatchBatchPayload,
     BatchIngestResult,
+    BrowserBatchPayload,
     GitCommitPayload,
+    IdeBatchPayload,
     ImportBatchRequest,
     IngestResult,
     ShellBatchPayload,
@@ -97,6 +99,36 @@ def collect_activitywatch(
     return service.ingest_activitywatch_batch(payload.events)
 
 
+@router.post("/browser", response_model=BatchIngestResult)
+def collect_browser(
+    payload: BrowserBatchPayload,
+    db: Session = Depends(get_db),
+) -> BatchIngestResult:
+    """接收浏览器扩展推送的页面活动数据。
+
+    事件按 (domain, title) 聚合为 session，通过 URL 模式自动分类（coding/research/learning/browsing），
+    推断关联项目，时间窗口去重。
+    """
+    _guard(db, "browser")
+    service = CollectorService(db)
+    return service.ingest_browser_batch(payload.events)
+
+
+@router.post("/ide", response_model=BatchIngestResult)
+def collect_ide(
+    payload: IdeBatchPayload,
+    db: Session = Depends(get_db),
+) -> BatchIngestResult:
+    """接收 IDE 扩展推送的编辑活动数据。
+
+    事件按 (project, file_path) 聚合为 session，根据文件类型自动分类（coding/debug/writing/config），
+    推断编程语言和项目，时间窗口去重。
+    """
+    _guard(db, "ide")
+    service = CollectorService(db)
+    return service.ingest_ide_batch(payload.events)
+
+
 @router.post("/import", response_model=BatchIngestResult)
 def batch_import(
     payload: ImportBatchRequest,
@@ -161,17 +193,17 @@ def collector_status(db: Session = Depends(get_db)) -> dict:
         },
         {
             "name": "browser",
-            "status": "planned",
-            "endpoint": None,
-            "description": "浏览器活动追踪（计划中）",
+            "status": "active",
+            "endpoint": "/api/collect/browser",
+            "description": "浏览器扩展 — 自动追踪页面访问时间，按 URL 分类",
             "linked_skill": skill_status.get("browser"),
             **_stats("browser"),
         },
         {
             "name": "ide",
-            "status": "planned",
-            "endpoint": None,
-            "description": "IDE 使用追踪（计划中）",
+            "status": "active",
+            "endpoint": "/api/collect/ide",
+            "description": "IDE 扩展 — 追踪文件编辑活动，按语言和项目分类",
             "linked_skill": skill_status.get("ide"),
             **_stats("ide"),
         },

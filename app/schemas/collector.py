@@ -78,6 +78,43 @@ class ActivityWatchBatchPayload(BaseModel):
     events: list[ActivityWatchEventPayload] = Field(min_length=1)
 
 
+# ── Browser ─────────────────────────────────────────
+
+class BrowserEventPayload(BaseModel):
+    """浏览器扩展推送的单条页面活动事件。"""
+    url: str = Field(min_length=1, description="Page URL")
+    title: str = Field(default="", description="Page title")
+    duration_seconds: float = Field(default=0, ge=0, description="Time spent on this page")
+    timestamp: datetime | None = Field(default=None, description="Event start time")
+    tab_id: str | None = Field(default=None, description="Browser tab identifier")
+
+
+class BrowserBatchPayload(BaseModel):
+    """浏览器扩展批量推送。"""
+    source: str = "browser"
+    events: list[BrowserEventPayload] = Field(min_length=1)
+
+
+# ── IDE ────────────────────────────────────────────
+
+class IdeEventPayload(BaseModel):
+    """IDE 扩展推送的单条编辑活动事件。"""
+    file_path: str = Field(min_length=1, description="File path relative to workspace or absolute")
+    language: str = Field(default="", description="Programming language (python, typescript, etc.)")
+    action: str = Field(default="edit", description="Action type: save, edit, focus, open, close")
+    project: str | None = Field(default=None, description="Workspace / project name")
+    duration_seconds: float = Field(default=0, ge=0, description="Time spent on this file")
+    lines_changed: int = Field(default=0, ge=0, description="Lines added + removed (for save actions)")
+    timestamp: datetime | None = Field(default=None, description="Event start time")
+    editor: str = Field(default="vscode", description="Editor name: vscode, jetbrains, vim, etc.")
+
+
+class IdeBatchPayload(BaseModel):
+    """IDE 扩展批量推送。"""
+    source: str = "ide"
+    events: list[IdeEventPayload] = Field(min_length=1)
+
+
 # ── Results ─────────────────────────────────────────
 
 class IngestResult(BaseModel):

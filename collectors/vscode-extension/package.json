@@ -1,0 +1,56 @@
+{
+  "name": "evowork-ide-tracker",
+  "displayName": "EvoWork IDE Tracker",
+  "description": "Track coding activity and send to EvoWork AI for work pattern analysis",
+  "version": "1.0.0",
+  "publisher": "evowork",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "EvoWork Tracker",
+      "properties": {
+        "evowork.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "EvoWork AI server URL"
+        },
+        "evowork.sendIntervalMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 60,
+          "description": "How often to send activity batches (minutes)"
+        },
+        "evowork.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable/disable activity tracking"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "evowork.sendNow",
+        "title": "EvoWork: Send Activity Now"
+      },
+      {
+        "command": "evowork.showStatus",
+        "title": "EvoWork: Show Tracking Status"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "^18.0.0",
+    "typescript": "^5.0.0"
+  }
+}

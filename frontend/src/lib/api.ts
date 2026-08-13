@@ -41,6 +41,9 @@ export const api = {
   deleteSkill: (id: string) => request<any>(`/skills/${id}`, { method: 'DELETE' }),
   toggleSkill: (id: string) => request<any>(`/skills/${id}/toggle`, { method: 'PATCH' }),
   useSkill: (id: string, data: any) => request<any>(`/skills/${id}/use`, { method: 'POST', body: JSON.stringify(data) }),
+  skillRecommendations: (limit = 10) => request<any>(`/skills/recommendations?limit=${limit}`),
+  skillLinkedEvents: (id: string, limit = 50) => request<any>(`/skills/${id}/events?limit=${limit}`),
+  backfillSkillLinks: () => request<any>('/skills/backfill', { method: 'POST' }),
 
   // Insights
   insightsSummary: (period: string) => request<any>(`/insights/summary?period=${period}`),
@@ -58,14 +61,18 @@ export const api = {
     }),
 
   // Search
-  search: (q: string, topK = 5, scope?: string) => {
-    const params = new URLSearchParams({ q, top_k: String(topK) });
-    if (scope) params.set('scope', scope);
-    return request<any>(`/search?${params}`);
+  search: (q: string, params?: { topK?: number; scope?: string; source?: string; eventType?: string; project?: string }) => {
+    const qs = new URLSearchParams({ q, top_k: String(params?.topK ?? 20) });
+    if (params?.scope) qs.set('scope', params.scope);
+    if (params?.source) qs.set('source', params.source);
+    if (params?.eventType) qs.set('event_type', params.eventType);
+    if (params?.project) qs.set('project', params.project);
+    return request<any>(`/search?${qs}`);
   },
-  searchExperience: (problem: string, topK = 5) =>
+  searchExperience: (problem: string, topK = 10) =>
     request<any>(`/experience?problem=${encodeURIComponent(problem)}&top_k=${topK}`),
   reindex: () => request<any>('/search/reindex', { method: 'POST' }),
+  hotTerms: () => request<any>('/search/hot'),
 
   // Analytics
   habitProfile: (period: string) => request<any>(`/analytics/habit?period=${period}`),

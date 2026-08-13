@@ -119,3 +119,33 @@ def toggle_skill(skill_id: str, db: Session = Depends(get_db)) -> Skill:
     db.commit()
     db.refresh(skill)
     return skill
+
+
+@router.get("/skills/recommendations")
+def skill_recommendations(
+    limit: int = Query(default=10, ge=1, le=20),
+) -> dict:
+    """基于近期事件模式推荐 Skill。"""
+    from app.services.skill_engine import get_skill_engine
+    engine = get_skill_engine()
+    recs = engine.recommend(limit=limit)
+    return {"total": len(recs), "recommendations": recs}
+
+
+@router.get("/skills/{skill_id}/events")
+def skill_linked_events(
+    skill_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict:
+    """查询与 Skill 关联的事件及统计。"""
+    from app.services.skill_engine import get_skill_engine
+    engine = get_skill_engine()
+    return engine.linked_events(skill_id, limit=limit)
+
+
+@router.post("/skills/backfill")
+def backfill_skill_links() -> dict:
+    """为历史事件回填 linked_skill_id（基于 source → system skill 映射）。"""
+    from app.services.skill_engine import get_skill_engine
+    engine = get_skill_engine()
+    return engine.backfill_links()
