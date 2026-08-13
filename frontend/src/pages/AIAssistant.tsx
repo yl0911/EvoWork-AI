@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/input';
@@ -517,7 +518,7 @@ export default function AIAssistant({ period }: AIAssistantProps) {
                       >
                         {msg.role === 'assistant' ? (
                           <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:my-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0.5 prose-pre:my-1">
-                            <ReactMarkdown>{msg.content}</ReactMarkdown>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                             {msg.streaming && (
                               <span
                                 className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm"

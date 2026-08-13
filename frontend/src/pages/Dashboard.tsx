@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -265,8 +267,14 @@ export default function Dashboard({ period }: DashboardProps) {
                   <Skeleton className="h-4 w-3/5" />
                 </div>
               ) : reviewResult ? (
-                <div className={`max-h-[400px] overflow-y-auto whitespace-pre-wrap rounded-md bg-secondary/30 p-3 text-sm leading-relaxed ${reviewResult.error ? 'text-muted-foreground italic' : ''}`}>
-                  {reviewResult.content}
+                <div className={`max-h-[400px] overflow-y-auto rounded-md bg-secondary/30 p-3 text-sm ${reviewResult.error ? 'text-muted-foreground italic' : ''}`}>
+                  {reviewResult.error ? (
+                    reviewResult.content
+                  ) : (
+                    <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:my-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0.5">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{reviewResult.content}</ReactMarkdown>
+                    </div>
+                  )}
                 </div>
               ) : null}
             </CardContent>
@@ -305,8 +313,14 @@ export default function Dashboard({ period }: DashboardProps) {
                   <Skeleton className="h-4 w-3/5" />
                 </div>
               ) : draftResult ? (
-                <div className={`max-h-[400px] overflow-y-auto whitespace-pre-wrap rounded-md bg-secondary/30 p-3 text-sm leading-relaxed ${draftResult.error ? 'text-muted-foreground italic' : ''}`}>
-                  {draftResult.content}
+                <div className={`max-h-[400px] overflow-y-auto rounded-md bg-secondary/30 p-3 text-sm ${draftResult.error ? 'text-muted-foreground italic' : ''}`}>
+                  {draftResult.error ? (
+                    draftResult.content
+                  ) : (
+                    <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:my-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0.5">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{draftResult.content}</ReactMarkdown>
+                    </div>
+                  )}
                 </div>
               ) : null}
             </CardContent>
