@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import {
   Database, Cpu, Layers, HardDrive, CheckCircle, XCircle, RefreshCw,
   Radio, GitBranch, Terminal, Monitor, Globe, Code2, UserCircle,
-  ChevronDown, ChevronUp, Copy, Check, Upload, Clock, AlertTriangle,
+  ChevronDown, ChevronUp, Copy, Check, Upload, Clock, AlertTriangle, Search,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
@@ -193,6 +193,7 @@ export default function Config() {
   const [collectors, setCollectors] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedGuide, setExpandedGuide] = useState<string | null>(null);
+  const [reindexing, setReindexing] = useState(false);
   const { toast } = useToast();
 
   const fetchAll = async () => {
@@ -205,22 +206,43 @@ export default function Config() {
       setConfig(c); setLlm(l); setDb(d); setVector(v);
       setCollectors(col?.collectors ?? []);
     } catch (e) {
-      toast({ title: '加载配置失败', description: String(e?.message || e), variant: 'destructive' });
+      toast({ title: '加载配置失败', description: String((e as any)?.message || e), variant: 'destructive' });
     }
     setLoading(false);
   };
 
   useEffect(() => { fetchAll(); }, []);
 
+  const handleReindex = async () => {
+    setReindexing(true);
+    try {
+      const res = await api.reindex();
+      toast({
+        title: '索引重建完成',
+        description: `FTS: ${res.fts_events} events, ${res.fts_skills} skills | Vector: ${res.vector_events} events, ${res.vector_skills} skills`,
+        variant: 'success',
+      });
+    } catch (err) {
+      toast({ title: '重建索引失败', description: String((err as any)?.message || err), variant: 'destructive' });
+    }
+    setReindexing(false);
+  };
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">系统连接</h2>
-        <Button variant="outline" size="sm" onClick={fetchAll} disabled={loading}>
-          <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          刷新
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleReindex} disabled={reindexing}>
+            <Search className={`mr-2 h-4 w-4 ${reindexing ? 'animate-spin' : ''}`} />
+            重建索引
+          </Button>
+          <Button variant="outline" size="sm" onClick={fetchAll} disabled={loading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            刷新
+          </Button>
+        </div>
       </div>
 
       {/* Infrastructure Cards */}
@@ -331,7 +353,7 @@ export default function Config() {
                 const updated = await api.collectorStatus();
                 setCollectors(updated?.collectors ?? []);
               } catch (e) {
-                toast({ title: '切换失败', description: String(e?.message || e), variant: 'destructive' });
+                toast({ title: '切换失败', description: String((e as any)?.message || e), variant: 'destructive' });
               }
             };
 

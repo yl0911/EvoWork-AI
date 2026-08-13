@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -9,6 +10,7 @@ import {
 import {
   Activity, Clock, Brain, Terminal, CalendarDays,
   ArrowUpRight, ArrowDownRight, Target,
+  Sparkles, Lightbulb, ChevronDown, ChevronUp, Loader2,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 
@@ -59,11 +61,24 @@ export default function Dashboard({ period }: DashboardProps) {
   const [prevInsights, setPrevInsights] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
+  /* ── AI quick actions ── */
+  const [reviewResult, setReviewResult] = useState<any>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [draftResult, setDraftResult] = useState<any>(null);
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [draftOpen, setDraftOpen] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
 
     async function fetchData() {
       setLoading(true);
+      // Reset AI results on period change so they'll be re-generated
+      setReviewResult(null);
+      setReviewOpen(false);
+      setDraftResult(null);
+      setDraftOpen(false);
       try {
         const [ins, sh, pat, prev] = await Promise.all([
           api.insightsSummary(period),
@@ -90,6 +105,37 @@ export default function Dashboard({ period }: DashboardProps) {
     fetchData();
     return () => { cancelled = true; };
   }, [period]);
+
+  /* ── AI quick action handlers ── */
+  async function handlePeriodReview() {
+    if (reviewResult) { setReviewOpen(v => !v); return; }
+    setReviewLoading(true);
+    setReviewOpen(true);
+    try {
+      const res = await api.periodReview(period);
+      setReviewResult(res);
+    } catch (err) {
+      console.error('Period review error:', err);
+      setReviewResult({ content: 'AI 服务暂不可用，请稍后重试。', error: true });
+    } finally {
+      setReviewLoading(false);
+    }
+  }
+
+  async function handleSkillDraft() {
+    if (draftResult) { setDraftOpen(v => !v); return; }
+    setDraftLoading(true);
+    setDraftOpen(true);
+    try {
+      const res = await api.skillDraft(period);
+      setDraftResult(res);
+    } catch (err) {
+      console.error('Skill draft error:', err);
+      setDraftResult({ content: 'AI 服务暂不可用，请稍后重试。', error: true });
+    } finally {
+      setDraftLoading(false);
+    }
+  }
 
   /* ── derive metrics ── */
   const totalEvents   = insights?.total_events   ?? 0;
@@ -182,6 +228,89 @@ export default function Dashboard({ period }: DashboardProps) {
               {projSwitches} project switches
             </p>
           </CardContent>
+        </Card>
+      </div>
+
+      {/* ─── AI Quick Actions ─── */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {/* Period Review */}
+        <Card className="border-dashed">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              <CardTitle className="text-sm font-medium">AI {periodLabel[period]}复盘</CardTitle>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePeriodReview}
+              disabled={reviewLoading}
+            >
+              {reviewLoading ? (
+                <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> 生成中…</>
+              ) : reviewResult ? (
+                <>{reviewOpen ? <ChevronUp className="mr-1 h-3.5 w-3.5" /> : <ChevronDown className="mr-1 h-3.5 w-3.5" />}
+                  {reviewOpen ? '收起' : '展开'}</>
+              ) : (
+                <><Sparkles className="mr-1.5 h-3.5 w-3.5" /> 生成</>
+              )}
+            </Button>
+          </CardHeader>
+          {reviewOpen && (
+            <CardContent className="pt-0">
+              {reviewLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-4/5" />
+                  <Skeleton className="h-4 w-3/5" />
+                </div>
+              ) : reviewResult ? (
+                <div className={`max-h-[400px] overflow-y-auto whitespace-pre-wrap rounded-md bg-secondary/30 p-3 text-sm leading-relaxed ${reviewResult.error ? 'text-muted-foreground italic' : ''}`}>
+                  {reviewResult.content}
+                </div>
+              ) : null}
+            </CardContent>
+          )}
+        </Card>
+
+        {/* Skill Draft */}
+        <Card className="border-dashed">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <div className="flex items-center gap-2">
+              <Lightbulb className="h-4 w-4 text-primary" />
+              <CardTitle className="text-sm font-medium">AI Skill 草稿</CardTitle>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSkillDraft}
+              disabled={draftLoading}
+            >
+              {draftLoading ? (
+                <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> 生成中…</>
+              ) : draftResult ? (
+                <>{draftOpen ? <ChevronUp className="mr-1 h-3.5 w-3.5" /> : <ChevronDown className="mr-1 h-3.5 w-3.5" />}
+                  {draftOpen ? '收起' : '展开'}</>
+              ) : (
+                <><Lightbulb className="mr-1.5 h-3.5 w-3.5" /> 生成</>
+              )}
+            </Button>
+          </CardHeader>
+          {draftOpen && (
+            <CardContent className="pt-0">
+              {draftLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-4/5" />
+                  <Skeleton className="h-4 w-3/5" />
+                </div>
+              ) : draftResult ? (
+                <div className={`max-h-[400px] overflow-y-auto whitespace-pre-wrap rounded-md bg-secondary/30 p-3 text-sm leading-relaxed ${draftResult.error ? 'text-muted-foreground italic' : ''}`}>
+                  {draftResult.content}
+                </div>
+              ) : null}
+            </CardContent>
+          )}
         </Card>
       </div>
 

@@ -337,7 +337,7 @@ export default function Skills() {
         setUsageData((prev) => ({ ...prev, [skillId]: refreshed }));
       }
     } catch (err) {
-      toast({ title: '记录失败', description: String(err?.message || err), variant: 'destructive' });
+      toast({ title: '记录失败', description: String((err as any)?.message || err), variant: 'destructive' });
     }
   };
 
@@ -353,7 +353,7 @@ export default function Skills() {
       setLinkedData({});
       setExpandedId(null);
     } catch (err) {
-      toast({ title: 'Backfill 失败', description: String(err?.message || err), variant: 'destructive' });
+      toast({ title: 'Backfill 失败', description: String((err as any)?.message || err), variant: 'destructive' });
       setBackfillResult('Backfill failed');
     } finally {
       setBackfilling(false);
@@ -367,7 +367,7 @@ export default function Skills() {
       const updated = await api.toggleSkill(id);
       setSkills((prev) => prev.map((s) => (s.id === id ? { ...s, enabled: updated.enabled } : s)));
     } catch (err) {
-      toast({ title: '切换失败', description: String(err?.message || err), variant: 'destructive' });
+      toast({ title: '切换失败', description: String((err as any)?.message || err), variant: 'destructive' });
     }
   };
 
@@ -413,7 +413,7 @@ export default function Skills() {
       fetchRecs();
     } catch (err) {
       const action = editingId ? '更新' : '创建';
-      toast({ title: `${action}失败`, description: String(err?.message || err), variant: 'destructive' });
+      toast({ title: `${action}失败`, description: String((err as any)?.message || err), variant: 'destructive' });
     } finally {
       setSubmitting(false);
     }
@@ -448,7 +448,7 @@ export default function Skills() {
       setSkills((prev) => prev.filter((s) => s.id !== id));
       toast({ title: 'Skill 已删除', variant: 'success' });
     } catch (err) {
-      toast({ title: '删除失败', description: String(err?.message || err), variant: 'destructive' });
+      toast({ title: '删除失败', description: String((err as any)?.message || err), variant: 'destructive' });
     }
   };
 

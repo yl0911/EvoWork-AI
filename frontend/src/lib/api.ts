@@ -27,7 +27,6 @@ export const api = {
   updateEvent: (id: string, data: any) => request<any>(`/events/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteEvent: (id: string) => request<any>(`/events/${id}`, { method: 'DELETE' }),
   eventHistory: (id: string) => request<any[]>(`/events/${id}/history`),
-  revisionCounts: () => request<Record<string, number>>('/events/history/counts'),
 
   // Skills
   listSkills: (category?: string, system?: boolean) => {
@@ -94,9 +93,6 @@ export const api = {
   hotTerms: () => request<any>('/search/hot'),
 
   // Analytics
-  habitProfile: (period: string) => request<any>(`/analytics/habit?period=${period}`),
-  repeatedProblems: (period: string, threshold = 2) => request<any>(`/analytics/repeated?period=${period}&threshold=${threshold}`),
-  efficiencyMetrics: (period: string) => request<any>(`/analytics/efficiency?period=${period}`),
   fullAnalysis: (period: string) => request<any>(`/analytics/full?period=${period}`),
   shellAnalysis: (period: string) => request<any>(`/analytics/shell?period=${period}`),
   workPatterns: (period: string) => request<any>(`/analytics/patterns?period=${period}`),
@@ -111,6 +107,4 @@ export const api = {
 
   // Collectors
   collectorStatus: () => request<any>('/collect/status'),
-  activitywatchImport: (events: any[]) =>
-    request<any>('/collect/activitywatch', { method: 'POST', body: JSON.stringify({ source: 'activitywatch', events }) }),
 };

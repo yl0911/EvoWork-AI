@@ -104,28 +104,27 @@ export default function Analytics() {
       setLoading(true);
       setError(null);
       try {
-        const [habitRes, problemsRes, effRes, shellRes, patternRes, timelineRes] = await Promise.allSettled([
-          api.habitProfile(period),
-          api.repeatedProblems(period, 2),
-          api.efficiencyMetrics(period),
-          api.shellAnalysis(period),
-          api.workPatterns(period),
+        const [fullRes, timelineRes] = await Promise.allSettled([
+          api.fullAnalysis(period),
           api.timeline(period, timelineGroupBy),
         ]);
 
         if (cancelled) return;
 
-        setHabit(habitRes.status === 'fulfilled' ? normalizeHabit(habitRes.value) : []);
-        setProblems(problemsRes.status === 'fulfilled' ? normalizeProblems(problemsRes.value) : []);
-        setEfficiency(effRes.status === 'fulfilled' ? normalizeEfficiency(effRes.value) : { resolve_rate: 0, outcomes: {} });
-        setShell(shellRes.status === 'fulfilled' ? shellRes.value : null);
-        setPatterns(patternRes.status === 'fulfilled' ? patternRes.value : null);
+        if (fullRes.status === 'fulfilled') {
+          const full = fullRes.value;
+          setHabit(normalizeHabit(full.habit_profile));
+          setProblems(normalizeProblems(full.repeated_problems));
+          setEfficiency(normalizeEfficiency(full.efficiency_metrics));
+          setShell(full.shell_commands ?? null);
+          setPatterns(full.work_patterns ?? null);
+        }
+
         setTimelineData(timelineRes.status === 'fulfilled' ? timelineRes.value : null);
 
         const errors: string[] = [];
-        if (habitRes.status === 'rejected') errors.push(`Habit: ${habitRes.reason}`);
-        if (problemsRes.status === 'rejected') errors.push(`Problems: ${problemsRes.reason}`);
-        if (effRes.status === 'rejected') errors.push(`Efficiency: ${effRes.reason}`);
+        if (fullRes.status === 'rejected') errors.push(`Analysis: ${fullRes.reason}`);
+        if (timelineRes.status === 'rejected') errors.push(`Timeline: ${timelineRes.reason}`);
         if (errors.length) setError(errors.join(' | '));
       } finally {
         if (!cancelled) setLoading(false);
