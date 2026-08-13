@@ -3,7 +3,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
-import { Trash2, Plus, Calendar, Pencil, X, Check, History, ChevronDown, ChevronUp, Filter, Search } from 'lucide-react';
+import { Trash2, Plus, Calendar, Pencil, X, Check, History, ChevronDown, ChevronUp, Filter, Search, GitCompare, RotateCcw } from 'lucide-react';
 import { api } from '@/lib/api';
 
 const EVENT_TYPES = [
@@ -39,6 +39,25 @@ const SOURCE_COLOR: Record<string, string> = {
   browser: '#06b6d4',
   ai_chat: '#ec4899',
   document: '#8b5cf6',
+};
+
+/* Field display labels */
+const FIELD_LABELS: Record<string, string> = {
+  title: 'Title',
+  content: 'Content',
+  event_type: 'Type',
+  event_layer: 'Layer',
+  source: 'Source',
+  project: 'Project',
+  tags: 'Tags',
+  duration_minutes: 'Duration',
+  outcome: 'Outcome',
+  privacy_level: 'Privacy',
+  started_at: 'Started At',
+  linked_skill_id: 'Linked Skill',
+  parent_event_id: 'Parent Event',
+  artifacts: 'Artifacts',
+  ai_summary: 'AI Summary',
 };
 
 interface EventFormData {
@@ -78,6 +97,21 @@ function formatTime(iso: string | null): string {
   return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
+function relativeTime(iso: string | null): string {
+  if (!iso) return '—';
+  const now = Date.now();
+  const then = new Date(iso).getTime();
+  const diff = now - then;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return formatTime(iso);
+}
+
 function formatDateLabel(dateStr: string): string {
   const d = new Date(dateStr);
   const today = new Date();
@@ -108,6 +142,83 @@ function eventToForm(ev: any): EventFormData {
     content: ev.content ?? '',
     started_at: ev.started_at ? ev.started_at.slice(0, 16) : '',
   };
+}
+
+/* ── Field-type-aware diff renderer ── */
+function DiffValue({ field, diff }: { field: string; diff: { old: any; new: any } }) {
+  const label = FIELD_LABELS[field] || field;
+
+  // Tags / arrays: show added/removed pills
+  if (field === 'tags' || field === 'artifacts') {
+    const oldArr: string[] = Array.isArray(diff.old) ? diff.old : [];
+    const newArr: string[] = Array.isArray(diff.new) ? diff.new : [];
+    const removed = oldArr.filter((v: string) => !newArr.includes(v));
+    const added = newArr.filter((v: string) => !oldArr.includes(v));
+    const kept = oldArr.filter((v: string) => newArr.includes(v));
+    return (
+      <div className="flex flex-wrap gap-1">
+        {kept.map((v: string) => (
+          <span key={v} className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px]">{v}</span>
+        ))}
+        {removed.map((v: string) => (
+          <span key={v} className="rounded-full bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 text-[10px] text-red-700 dark:text-red-400 line-through">{v}</span>
+        ))}
+        {added.map((v: string) => (
+          <span key={v} className="rounded-full bg-green-100 dark:bg-green-900/30 px-1.5 py-0.5 text-[10px] text-green-700 dark:text-green-400">{v}</span>
+        ))}
+        {removed.length === 0 && added.length === 0 && (
+          <span className="text-[10px] text-muted-foreground">reordered</span>
+        )}
+      </div>
+    );
+  }
+
+  // Duration: show with "min" suffix
+  if (field === 'duration_minutes') {
+    return (
+      <div className="flex items-center gap-1.5 text-[11px]">
+        <span className="line-through text-red-600/70 dark:text-red-400/70">{diff.old ?? 0}m</span>
+        <span className="text-muted-foreground">→</span>
+        <span className="font-medium text-green-700 dark:text-green-400">{diff.new ?? 0}m</span>
+      </div>
+    );
+  }
+
+  // Content / long text: block display
+  if (field === 'content' || field === 'ai_summary') {
+    return (
+      <div className="space-y-1">
+        {diff.old && (
+          <div className="rounded bg-red-50 dark:bg-red-950/20 px-2 py-1 text-[10px] text-red-700 dark:text-red-400 line-through max-h-[60px] overflow-y-auto">
+            {String(diff.old).slice(0, 200)}
+          </div>
+        )}
+        <div className="rounded bg-green-50 dark:bg-green-950/20 px-2 py-1 text-[10px] text-green-700 dark:text-green-400 max-h-[60px] overflow-y-auto">
+          {String(diff.new ?? '').slice(0, 200) || '(empty)'}
+        </div>
+      </div>
+    );
+  }
+
+  // Datetime fields
+  if (field === 'started_at') {
+    return (
+      <div className="flex items-center gap-1.5 text-[11px]">
+        <span className="line-through text-red-600/70 dark:text-red-400/70">{diff.old ? formatTime(diff.old) : '—'}</span>
+        <span className="text-muted-foreground">→</span>
+        <span className="font-medium text-green-700 dark:text-green-400">{diff.new ? formatTime(diff.new) : '—'}</span>
+      </div>
+    );
+  }
+
+  // Default: simple old → new
+  return (
+    <div className="flex items-center gap-1.5 text-[11px]">
+      <span className="line-through text-red-600/70 dark:text-red-400/70">{String(diff.old ?? '—')}</span>
+      <span className="text-muted-foreground">→</span>
+      <span className="font-medium text-green-700 dark:text-green-400">{String(diff.new ?? '—')}</span>
+    </div>
+  );
 }
 
 /* ── Filter pill component ── */
@@ -549,8 +660,13 @@ export default function Events() {
                                         {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                                       </button>
                                     )}
-                                    <button type="button" onClick={() => toggleHistory(ev.id)} className="rounded p-1 text-muted-foreground hover:bg-secondary" title="History">
+                                    <button type="button" onClick={() => toggleHistory(ev.id)} className="relative rounded p-1 text-muted-foreground hover:bg-secondary" title="History">
                                       <History className="h-3 w-3" />
+                                      {ev.revision_count > 0 && (
+                                        <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-indigo-500 text-[8px] font-bold text-white">
+                                          {ev.revision_count}
+                                        </span>
+                                      )}
                                     </button>
                                     <button type="button" onClick={() => startEdit(ev)} className="rounded p-1 text-muted-foreground hover:bg-secondary" title="Edit">
                                       <Pencil className="h-3 w-3" />
@@ -583,35 +699,71 @@ export default function Events() {
                                   </div>
                                 )}
 
-                                {/* History panel */}
+                                {/* History panel — Visual Timeline */}
                                 {showHistory && (
-                                  <div className="mt-2 rounded-md border bg-secondary/30 p-2.5">
-                                    <h4 className="mb-1.5 text-[10px] font-semibold text-muted-foreground">Modification History</h4>
+                                  <div className="mt-3 rounded-lg border border-indigo-200/60 dark:border-indigo-800/30 bg-gradient-to-b from-indigo-50/50 to-transparent dark:from-indigo-950/20 p-3">
+                                    <div className="flex items-center gap-2 mb-3">
+                                      <GitCompare className="h-3.5 w-3.5 text-indigo-500" />
+                                      <h4 className="text-xs font-semibold text-indigo-700 dark:text-indigo-400">
+                                        Modification History
+                                      </h4>
+                                      {historyData.length > 0 && (
+                                        <Badge variant="secondary" className="text-[9px] h-4 px-1.5 ml-auto">
+                                          {historyData.length} revision{historyData.length > 1 ? 's' : ''}
+                                        </Badge>
+                                      )}
+                                    </div>
                                     {historyLoading ? (
-                                      <p className="text-[10px] text-muted-foreground">Loading...</p>
+                                      <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground">
+                                        <div className="h-3 w-3 animate-spin rounded-full border-2 border-indigo-300 border-t-indigo-600" />
+                                        Loading history...
+                                      </div>
                                     ) : historyData.length === 0 ? (
-                                      <p className="text-[10px] text-muted-foreground">No modifications recorded.</p>
+                                      <p className="py-2 text-[11px] text-muted-foreground italic">No modifications recorded.</p>
                                     ) : (
-                                      <ul className="space-y-1.5">
-                                        {historyData.map((rev: any) => (
-                                          <li key={rev.id} className="text-[10px]">
-                                            <div className="flex items-center gap-1.5 text-muted-foreground">
-                                              <span>{formatTime(rev.revised_at)}</span>
-                                              <span className="text-foreground">{rev.summary}</span>
-                                            </div>
-                                            <div className="mt-0.5 ml-3 space-y-0.5">
-                                              {Object.entries(rev.changes).map(([field, diff]: [string, any]) => (
-                                                <div key={field} className="flex gap-1 text-muted-foreground">
-                                                  <span className="font-medium text-foreground">{field}:</span>
-                                                  <span className="line-through opacity-60">{String(diff.old ?? '—')}</span>
-                                                  <span>→</span>
-                                                  <span className="text-green-700 dark:text-green-400">{String(diff.new ?? '—')}</span>
+                                      <div className="relative ml-1.5">
+                                        {/* Vertical timeline line */}
+                                        <div className="absolute left-[5px] top-2 bottom-2 w-px bg-indigo-200 dark:bg-indigo-800" />
+                                        <div className="space-y-3">
+                                          {historyData.map((rev: any, revIdx: number) => {
+                                            const changeEntries = Object.entries(rev.changes || {});
+                                            return (
+                                              <div key={rev.id} className="relative pl-5">
+                                                {/* Timeline dot */}
+                                                <div className={`absolute left-0 top-1 h-[11px] w-[11px] rounded-full border-2 ${
+                                                  revIdx === 0
+                                                    ? 'border-indigo-500 bg-indigo-100 dark:bg-indigo-900'
+                                                    : 'border-indigo-300 dark:border-indigo-700 bg-white dark:bg-gray-900'
+                                                }`} />
+
+                                                {/* Header: time + summary */}
+                                                <div className="flex items-center gap-2 mb-1">
+                                                  <span className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400 tabular-nums" title={rev.revised_at}>
+                                                    {relativeTime(rev.revised_at)}
+                                                  </span>
+                                                  <span className="text-[10px] text-muted-foreground">
+                                                    {changeEntries.length} field{changeEntries.length !== 1 ? 's' : ''} changed
+                                                  </span>
                                                 </div>
-                                              ))}
-                                            </div>
-                                          </li>
-                                        ))}
-                                      </ul>
+
+                                                {/* Diff entries */}
+                                                <div className="space-y-1.5">
+                                                  {changeEntries.map(([field, diff]: [string, any]) => (
+                                                    <div key={field} className="rounded-md bg-card/80 px-2 py-1.5 border border-border/50">
+                                                      <div className="flex items-center gap-1.5 mb-0.5">
+                                                        <span className="text-[10px] font-semibold text-foreground">
+                                                          {FIELD_LABELS[field] || field}
+                                                        </span>
+                                                      </div>
+                                                      <DiffValue field={field} diff={diff} />
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
                                     )}
                                   </div>
                                 )}

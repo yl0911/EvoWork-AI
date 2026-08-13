@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-import json
+from collections import defaultdict
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models import WorkEvent
 from app.models.event_revision import EventRevision
 from app.models.work_event import infer_event_layer
-from app.schemas.work_event import WorkEventCreate, WorkEventRead, WorkEventUpdate
+from app.schemas.work_event import EventRevisionRead, WorkEventCreate, WorkEventRead, WorkEventUpdate
 from app.services.indexing import delete_event_index, index_event
 
 router = APIRouter(tags=["events"])
@@ -54,14 +54,26 @@ def _build_revision(event_id: str, old_values: dict, new_values: dict) -> EventR
     )
 
 
-@router.get("/events", response_model=list[WorkEventRead])
+def _revision_to_dict(r: EventRevision) -> dict:
+    """将 EventRevision 转为响应字典（含 field_count）。"""
+    return {
+        "id": r.id,
+        "event_id": r.event_id,
+        "changes": r.changes,
+        "summary": r.summary,
+        "revised_at": r.revised_at.isoformat() if r.revised_at else None,
+        "field_count": len(r.changes) if r.changes else 0,
+    }
+
+
+@router.get("/events")
 def list_events(
     db: Session = Depends(get_db),
     limit: int = Query(default=50, ge=1, le=200),
     project: str | None = None,
     event_type: str | None = None,
     event_layer: str | None = None,
-) -> list[WorkEvent]:
+) -> list[dict]:
     stmt = select(WorkEvent)
     if project:
         stmt = stmt.where(WorkEvent.project == project)
@@ -70,7 +82,27 @@ def list_events(
     if event_layer:
         stmt = stmt.where(WorkEvent.event_layer == event_layer)
     stmt = stmt.order_by(desc(WorkEvent.started_at)).limit(limit)
-    return list(db.execute(stmt).scalars())
+    events = list(db.execute(stmt).scalars())
+
+    # 批量查询 revision_count
+    if events:
+        event_ids = [e.id for e in events]
+        count_stmt = (
+            select(EventRevision.event_id, func.count(EventRevision.id))
+            .where(EventRevision.event_id.in_(event_ids))
+            .group_by(EventRevision.event_id)
+        )
+        counts = dict(db.execute(count_stmt).all())
+    else:
+        counts = {}
+
+    # 构建响应（含 revision_count）
+    result = []
+    for ev in events:
+        d = WorkEventRead.model_validate(ev).model_dump()
+        d["revision_count"] = counts.get(ev.id, 0)
+        result.append(d)
+    return result
 
 
 @router.post("/events", response_model=WorkEventRead)
@@ -149,13 +181,16 @@ def event_history(
         .order_by(desc(EventRevision.revised_at))
     )
     revisions = list(db.execute(stmt).scalars())
-    return [
-        {
-            "id": r.id,
-            "event_id": r.event_id,
-            "changes": r.changes,
-            "summary": r.summary,
-            "revised_at": r.revised_at.isoformat() if r.revised_at else None,
-        }
-        for r in revisions
-    ]
+    return [_revision_to_dict(r) for r in revisions]
+
+
+@router.get("/events/history/counts")
+def revision_counts(
+    db: Session = Depends(get_db),
+) -> dict[str, int]:
+    """批量查询所有事件的修订次数（用于前端显示 badge）。"""
+    stmt = (
+        select(EventRevision.event_id, func.count(EventRevision.id))
+        .group_by(EventRevision.event_id)
+    )
+    return dict(db.execute(stmt).all())

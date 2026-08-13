@@ -59,5 +59,18 @@ class WorkEventRead(WorkEventBase):
     id: str
     created_at: datetime
     updated_at: datetime
+    revision_count: int = 0
+
+    model_config = {"from_attributes": True}
+
+
+class EventRevisionRead(BaseModel):
+    """EventRevision 响应 schema。"""
+    id: str
+    event_id: str
+    changes: dict
+    summary: str
+    revised_at: datetime | None = None
+    field_count: int = 0
 
     model_config = {"from_attributes": True}

@@ -27,6 +27,7 @@ export const api = {
   updateEvent: (id: string, data: any) => request<any>(`/events/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteEvent: (id: string) => request<any>(`/events/${id}`, { method: 'DELETE' }),
   eventHistory: (id: string) => request<any[]>(`/events/${id}/history`),
+  revisionCounts: () => request<Record<string, number>>('/events/history/counts'),
 
   // Skills
   listSkills: (category?: string, system?: boolean) => {
