@@ -5,6 +5,11 @@ import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 import { Trash2, Plus, Calendar, Pencil, X, Check, History, ChevronDown, ChevronUp, Filter, Search, GitCompare, RotateCcw } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useToast } from '@/hooks/use-toast';
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
+} from '@/components/ui/alert-dialog';
 
 const EVENT_TYPES = [
   'search', 'debug', 'coding', 'reading', 'writing',
@@ -265,6 +270,10 @@ export default function Events() {
   // Expanded events
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
+  // Toast + confirm
+  const { toast } = useToast();
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
   const fetchEvents = useCallback(async () => {
     try {
       const data = await api.listEvents();
@@ -351,7 +360,10 @@ export default function Events() {
       await api.createEvent(payload);
       setForm(EMPTY_FORM);
       await fetchEvents();
-    } catch { /* retry */ } finally {
+      toast({ title: '事件创建成功', variant: 'success' });
+    } catch (err: any) {
+      toast({ title: '创建失败', description: err?.message || '请稍后重试', variant: 'destructive' });
+    } finally {
       setLoading(false);
     }
   };
@@ -360,7 +372,10 @@ export default function Events() {
     try {
       await api.deleteEvent(id);
       await fetchEvents();
-    } catch { /* ignore */ }
+      toast({ title: '事件已删除', variant: 'success' });
+    } catch (err: any) {
+      toast({ title: '删除失败', description: err?.message || '请稍后重试', variant: 'destructive' });
+    }
   };
 
   // ── Edit ──
@@ -382,7 +397,10 @@ export default function Events() {
       await api.updateEvent(editingId, payload);
       setEditingId(null);
       await fetchEvents();
-    } catch { /* keep form */ } finally {
+      toast({ title: '事件已更新', variant: 'success' });
+    } catch (err: any) {
+      toast({ title: '更新失败', description: err?.message || '请稍后重试', variant: 'destructive' });
+    } finally {
       setSaving(false);
     }
   };
@@ -671,7 +689,7 @@ export default function Events() {
                                     <button type="button" onClick={() => startEdit(ev)} className="rounded p-1 text-muted-foreground hover:bg-secondary" title="Edit">
                                       <Pencil className="h-3 w-3" />
                                     </button>
-                                    <button type="button" onClick={() => handleDelete(ev.id)} className="rounded p-1 text-muted-foreground hover:text-destructive" title="Delete">
+                                    <button type="button" onClick={() => setDeleteConfirmId(ev.id)} className="rounded p-1 text-muted-foreground hover:text-destructive" title="Delete">
                                       <Trash2 className="h-3 w-3" />
                                     </button>
                                   </div>
@@ -780,6 +798,27 @@ export default function Events() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={!!deleteConfirmId} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除</AlertDialogTitle>
+            <AlertDialogDescription>
+              此操作不可撤销，确定要删除这个事件吗？
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { if (deleteConfirmId) { handleDelete(deleteConfirmId); setDeleteConfirmId(null); } }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

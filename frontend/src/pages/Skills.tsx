@@ -9,6 +9,11 @@ import {
   ChevronDown, ChevronUp, Sparkles, Link2, RefreshCw, BarChart3, Clock,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useToast } from '@/hooks/use-toast';
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
+} from '@/components/ui/alert-dialog';
 
 /* ── Types ─────────────────────────────────────────── */
 
@@ -145,6 +150,10 @@ export default function Skills() {
   const [expandedCandidate, setExpandedCandidate] = useState<number | null>(null);
   const [confirmingIdx, setConfirmingIdx] = useState<number | null>(null);
   const [miningMessage, setMiningMessage] = useState<string | null>(null);
+
+  // Toast + confirm
+  const { toast } = useToast();
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   /* ── Mining functions ──────────────────────────────── */
 
@@ -288,11 +297,11 @@ export default function Skills() {
       setBackfillResult(null);
       const res = await api.backfillSkillLinks();
       setBackfillResult(`Linked ${res.updated} events`);
-      // Clear cached linked data so cards refresh
+      toast({ title: `已关联 ${res.updated} 个事件`, variant: 'success' });
       setLinkedData({});
       setExpandedId(null);
     } catch (err) {
-      console.error('Backfill failed:', err);
+      toast({ title: 'Backfill 失败', description: String(err?.message || err), variant: 'destructive' });
       setBackfillResult('Backfill failed');
     } finally {
       setBackfilling(false);
@@ -306,7 +315,7 @@ export default function Skills() {
       const updated = await api.toggleSkill(id);
       setSkills((prev) => prev.map((s) => (s.id === id ? { ...s, enabled: updated.enabled } : s)));
     } catch (err) {
-      console.error('Failed to toggle skill:', err);
+      toast({ title: '切换失败', description: String(err?.message || err), variant: 'destructive' });
     }
   };
 
@@ -342,10 +351,10 @@ export default function Skills() {
       await api.createSkill(buildPayload());
       setForm(initialForm);
       await fetchSkills();
-      // Refresh recs since a new skill may affect recommendations
+      toast({ title: 'Skill 创建成功', variant: 'success' });
       fetchRecs();
     } catch (err) {
-      console.error('Failed to create skill:', err);
+      toast({ title: '创建失败', description: String(err?.message || err), variant: 'destructive' });
     } finally {
       setSubmitting(false);
     }
@@ -355,8 +364,9 @@ export default function Skills() {
     try {
       await api.deleteSkill(id);
       setSkills((prev) => prev.filter((s) => s.id !== id));
+      toast({ title: 'Skill 已删除', variant: 'success' });
     } catch (err) {
-      console.error('Failed to delete skill:', err);
+      toast({ title: '删除失败', description: String(err?.message || err), variant: 'destructive' });
     }
   };
 
@@ -852,7 +862,7 @@ export default function Skills() {
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  onClick={() => handleDelete(skill.id)}
+                                  onClick={() => setDeleteConfirmId(skill.id)}
                                   className="shrink-0 text-muted-foreground hover:text-destructive"
                                 >
                                   <Trash2 className="h-4 w-4" />
@@ -950,6 +960,27 @@ export default function Skills() {
           </Card>
         </div>
       </div>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={!!deleteConfirmId} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除 Skill</AlertDialogTitle>
+            <AlertDialogDescription>
+              删除后无法恢复，确定要删除这个 Skill 吗？
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { if (deleteConfirmId) { handleDelete(deleteConfirmId); setDeleteConfirmId(null); } }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -8,6 +8,7 @@ import {
   ChevronDown, ChevronUp, Copy, Check, Upload, Clock,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useToast } from '@/hooks/use-toast';
 
 const PRIMARY = 'hsl(262, 83%, 58%)';
 
@@ -192,6 +193,7 @@ export default function Config() {
   const [collectors, setCollectors] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedGuide, setExpandedGuide] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const fetchAll = async () => {
     setLoading(true);
@@ -202,7 +204,9 @@ export default function Config() {
       ]);
       setConfig(c); setLlm(l); setDb(d); setVector(v);
       setCollectors(col?.collectors ?? []);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      toast({ title: '加载配置失败', description: String(e?.message || e), variant: 'destructive' });
+    }
     setLoading(false);
   };
 
@@ -327,7 +331,7 @@ export default function Config() {
                 const updated = await api.collectorStatus();
                 setCollectors(updated?.collectors ?? []);
               } catch (e) {
-                console.error('Failed to toggle:', e);
+                toast({ title: '切换失败', description: String(e?.message || e), variant: 'destructive' });
               }
             };
 

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, PieChart, Pie, AreaChart, Area,
@@ -208,7 +209,7 @@ export default function Dashboard({ period }: DashboardProps) {
             </ResponsiveContainer>
           ) : (
             <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-              {loading ? 'Loading...' : 'No data available'}
+              {loading ? <Skeleton className="h-full w-full" /> : 'No data available'}
             </div>
           )}
         </CardContent>
@@ -250,7 +251,7 @@ export default function Dashboard({ period }: DashboardProps) {
               </>
             ) : (
               <div className="flex h-48 w-full items-center justify-center text-sm text-muted-foreground">
-                {loading ? 'Loading...' : 'No data available'}
+                {loading ? <Skeleton className="h-full w-full" /> : 'No data available'}
               </div>
             )}
           </CardContent>
@@ -292,7 +293,7 @@ export default function Dashboard({ period }: DashboardProps) {
               </div>
             ) : (
               <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-                {loading ? 'Loading...' : 'No data available'}
+                {loading ? <Skeleton className="h-full w-full" /> : 'No data available'}
               </div>
             )}
           </CardContent>
@@ -323,7 +324,7 @@ export default function Dashboard({ period }: DashboardProps) {
               </ResponsiveContainer>
             ) : (
               <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-                {loading ? 'Loading...' : 'No data available'}
+                {loading ? <Skeleton className="h-full w-full" /> : 'No data available'}
               </div>
             )}
           </CardContent>
@@ -347,7 +348,7 @@ export default function Dashboard({ period }: DashboardProps) {
               </ResponsiveContainer>
             ) : (
               <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-                {loading ? 'Loading...' : 'No data available'}
+                {loading ? <Skeleton className="h-full w-full" /> : 'No data available'}
               </div>
             )}
           </CardContent>
@@ -403,7 +404,7 @@ export default function Dashboard({ period }: DashboardProps) {
               </div>
             ) : (
               <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-                {loading ? 'Loading...' : 'No shell data'}
+                {loading ? <Skeleton className="h-full w-full" /> : 'No shell data'}
               </div>
             )}
           </CardContent>
@@ -429,7 +430,7 @@ export default function Dashboard({ period }: DashboardProps) {
               </ul>
             ) : (
               <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-                {loading ? 'Loading...' : 'No insight notes'}
+                {loading ? <Skeleton className="h-full w-full" /> : 'No insight notes'}
               </div>
             )}
           </CardContent>
