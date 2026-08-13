@@ -10,7 +10,15 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.gateways.base import LLMGatewayError
-from app.schemas.ai import ChatRequest, PeriodReviewRequest, SkillDraftRequest
+from app.schemas.ai import (
+    ChatRequest,
+    ConversationCreate,
+    ConversationRead,
+    MessageRead,
+    MessagesSaveRequest,
+    PeriodReviewRequest,
+    SkillDraftRequest,
+)
 from app.services.ai_analysis import build_chat_context, generate_period_review, generate_skill_draft
 
 router = APIRouter(tags=["ai"])
@@ -86,3 +94,127 @@ def ai_chat(payload: ChatRequest, db: Session = Depends(get_db)):
             "X-Accel-Buffering": "no",  # nginx 不缓冲
         },
     )
+
+
+# ── Conversation Persistence ─────────────────────────
+
+
+@router.get("/ai/conversations", response_model=list[ConversationRead])
+def list_conversations(db: Session = Depends(get_db)):
+    from sqlalchemy import select
+    from app.models import AIConversation
+
+    convs = list(db.execute(
+        select(AIConversation).order_by(AIConversation.updated_at.desc()).limit(50)
+    ).scalars())
+
+    return [
+        ConversationRead(
+            id=c.id,
+            title=c.title,
+            period=c.period,
+            message_count=c.message_count,
+            created_at=c.created_at.isoformat() if c.created_at else "",
+            updated_at=c.updated_at.isoformat() if c.updated_at else "",
+        )
+        for c in convs
+    ]
+
+
+@router.post("/ai/conversations", response_model=ConversationRead)
+def create_conversation(payload: ConversationCreate, db: Session = Depends(get_db)):
+    from app.models import AIConversation
+
+    conv = AIConversation(period=payload.period, title="New Conversation")
+    db.add(conv)
+    db.commit()
+    db.refresh(conv)
+
+    return ConversationRead(
+        id=conv.id,
+        title=conv.title,
+        period=conv.period,
+        message_count=conv.message_count,
+        created_at=conv.created_at.isoformat() if conv.created_at else "",
+        updated_at=conv.updated_at.isoformat() if conv.updated_at else "",
+    )
+
+
+@router.get("/ai/conversations/{conv_id}/messages", response_model=list[MessageRead])
+def get_conversation_messages(conv_id: str, db: Session = Depends(get_db)):
+    from sqlalchemy import select
+    from app.models import AIMessage
+
+    msgs = list(db.execute(
+        select(AIMessage)
+        .where(AIMessage.conversation_id == conv_id)
+        .order_by(AIMessage.order_index)
+    ).scalars())
+
+    return [
+        MessageRead(
+            id=m.id,
+            role=m.role,
+            content=m.content,
+            order_index=m.order_index,
+            created_at=m.created_at.isoformat() if m.created_at else "",
+        )
+        for m in msgs
+    ]
+
+
+@router.post("/ai/conversations/{conv_id}/messages", response_model=dict)
+def save_conversation_messages(
+    conv_id: str, payload: MessagesSaveRequest, db: Session = Depends(get_db)
+):
+    """Batch replace: delete all existing messages and insert new ones."""
+    from sqlalchemy import delete, select
+    from app.models import AIConversation, AIMessage
+
+    conv = db.execute(
+        select(AIConversation).where(AIConversation.id == conv_id)
+    ).scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Delete existing messages
+    db.execute(delete(AIMessage).where(AIMessage.conversation_id == conv_id))
+
+    # Insert new messages
+    for i, msg in enumerate(payload.messages):
+        db.add(AIMessage(
+            conversation_id=conv_id,
+            role=msg.role,
+            content=msg.content,
+            order_index=i,
+        ))
+
+    # Update conversation metadata
+    conv.message_count = len(payload.messages)
+    if payload.title:
+        conv.title = payload.title
+    elif payload.messages and conv.title == "New Conversation":
+        # Auto-generate title from first user message
+        first_user = next((m for m in payload.messages if m.role == "user"), None)
+        if first_user:
+            conv.title = first_user.content[:50].strip()
+
+    db.commit()
+    return {"status": "ok", "count": len(payload.messages)}
+
+
+@router.delete("/ai/conversations/{conv_id}", response_model=dict)
+def delete_conversation(conv_id: str, db: Session = Depends(get_db)):
+    from sqlalchemy import delete, select
+    from app.models import AIConversation, AIMessage
+
+    conv = db.execute(
+        select(AIConversation).where(AIConversation.id == conv_id)
+    ).scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    db.execute(delete(AIMessage).where(AIMessage.conversation_id == conv_id))
+    db.delete(conv)
+    db.commit()
+    return {"status": "deleted"}

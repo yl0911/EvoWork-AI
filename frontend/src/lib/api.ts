@@ -66,6 +66,16 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages, period }),
     }),
+  listConversations: () => request<any[]>('/ai/conversations'),
+  createConversation: (period: string) =>
+    request<any>('/ai/conversations', { method: 'POST', body: JSON.stringify({ period }) }),
+  deleteConversation: (id: string) =>
+    request<any>(`/ai/conversations/${id}`, { method: 'DELETE' }),
+  loadMessages: (convId: string) => request<any[]>(`/ai/conversations/${convId}/messages`),
+  saveMessages: (convId: string, messages: { role: string; content: string }[]) =>
+    request<any>(`/ai/conversations/${convId}/messages`, {
+      method: 'POST', body: JSON.stringify({ messages }),
+    }),
 
   // Search
   search: (q: string, params?: { topK?: number; scope?: string; source?: string; eventType?: string; project?: string }) => {

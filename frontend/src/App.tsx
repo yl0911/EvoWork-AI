@@ -12,22 +12,15 @@ export default function App() {
   const [page, setPage] = useState('dashboard');
   const [period, setPeriod] = useState<'week' | 'month' | 'year'>('week');
 
-  const renderPage = () => {
-    switch (page) {
-      case 'dashboard': return <Dashboard period={period} />;
-      case 'events':    return <Events />;
-      case 'skills':    return <Skills />;
-      case 'search':    return <SearchPage />;
-      case 'ai':        return <AIAssistant period={period} />;
-      case 'analytics': return <Analytics />;
-      case 'config':    return <Config />;
-      default:          return <Dashboard period={period} />;
-    }
-  };
-
   return (
     <Layout currentPage={page} onNavigate={setPage} period={period} onPeriodChange={setPeriod}>
-      {renderPage()}
+      <div className={page === 'dashboard' ? '' : 'hidden'}><Dashboard period={period} /></div>
+      <div className={page === 'events' ? '' : 'hidden'}><Events /></div>
+      <div className={page === 'skills' ? '' : 'hidden'}><Skills /></div>
+      <div className={page === 'search' ? '' : 'hidden'}><SearchPage /></div>
+      <div className={page === 'ai' ? '' : 'hidden'}><AIAssistant period={period} /></div>
+      <div className={page === 'analytics' ? '' : 'hidden'}><Analytics /></div>
+      <div className={page === 'config' ? '' : 'hidden'}><Config /></div>
     </Layout>
   );
 }

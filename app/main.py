@@ -30,6 +30,7 @@ from app.migrations.migrate_phase2 import migrate as run_phase2_migration
 from app.migrations.migrate_phase3 import migrate as run_phase3_migration
 from app.migrations.migrate_phase4 import migrate as run_phase4_migration
 from app.migrations.migrate_phase5 import migrate as run_phase5_migration
+from app.migrations.migrate_phase6 import migrate as run_phase6_migration
 from app.services.bootstrap import seed_demo_data
 from app.services.indexing import reindex_all
 from app.services.search import get_search_service
@@ -43,6 +44,7 @@ async def lifespan(app: FastAPI):
     run_phase3_migration(settings.database_url)
     run_phase4_migration(settings.database_url)
     run_phase5_migration(settings.database_url)
+    run_phase6_migration(settings.database_url)
     db_gw = get_db_gateway()
     db_gw.init_db()
     # 初始化 FTS5 全文搜索表
