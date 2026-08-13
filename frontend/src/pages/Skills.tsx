@@ -7,7 +7,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Trash2, Plus, BookOpen, Lightbulb, Recycle, Globe, Settings, Pencil,
   ChevronDown, ChevronUp, Sparkles, Link2, RefreshCw, BarChart3, Clock,
-  Play, Activity, ThumbsUp, ThumbsDown, Minus,
+  Play, Activity, ThumbsUp, ThumbsDown, Minus, Download,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
@@ -481,6 +481,22 @@ export default function Skills() {
             {backfillResult && (
               <span className="text-xs text-muted-foreground">{backfillResult}</span>
             )}
+            <a
+              href={api.exportSkills('json')}
+              download
+              className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs font-medium text-foreground shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+            >
+              <Download className="h-3.5 w-3.5" />
+              JSON
+            </a>
+            <a
+              href={api.exportSkills('csv')}
+              download
+              className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs font-medium text-foreground shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+            >
+              <Download className="h-3.5 w-3.5" />
+              CSV
+            </a>
             <Button
               variant="outline"
               size="sm"

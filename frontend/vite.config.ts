@@ -16,4 +16,17 @@ export default defineConfig({
       '/api': 'http://127.0.0.1:8000',
     },
   },
+  build: {
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          charts: ['recharts'],
+          markdown: ['react-markdown', 'remark-gfm'],
+          icons: ['lucide-react'],
+        },
+      },
+    },
+  },
 })

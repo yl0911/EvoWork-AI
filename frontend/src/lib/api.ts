@@ -14,15 +14,20 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   // Events
-  listEvents: (params?: { project?: string; event_type?: string; event_layer?: string; limit?: number }) => {
+  listEvents: (params?: { project?: string; event_type?: string; event_layer?: string; limit?: number; offset?: number }) => {
     const qs = new URLSearchParams();
     if (params?.project) qs.set('project', params.project);
     if (params?.event_type) qs.set('event_type', params.event_type);
     if (params?.event_layer) qs.set('event_layer', params.event_layer);
     if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.offset) qs.set('offset', String(params.offset));
     const q = qs.toString();
-    return request<any[]>(`/events${q ? `?${q}` : ''}`);
+    return request<any>(`/events${q ? `?${q}` : ''}`);
   },
+  exportEvents: (format: 'json' | 'csv' = 'json') =>
+    `${BASE}/events/export?format=${format}`,
+  exportSkills: (format: 'json' | 'csv' = 'json') =>
+    `${BASE}/skills/export?format=${format}`,
   createEvent: (data: any) => request<any>('/events', { method: 'POST', body: JSON.stringify(data) }),
   updateEvent: (id: string, data: any) => request<any>(`/events/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteEvent: (id: string) => request<any>(`/events/${id}`, { method: 'DELETE' }),

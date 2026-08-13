@@ -22,7 +22,7 @@ export default function App() {
         <div className={page === 'skills' ? '' : 'hidden'}><Skills /></div>
         <div className={page === 'search' ? '' : 'hidden'}><SearchPage /></div>
         <div className={page === 'ai' ? '' : 'hidden'}><AIAssistant period={period} /></div>
-        <div className={page === 'analytics' ? '' : 'hidden'}><Analytics /></div>
+        <div className={page === 'analytics' ? '' : 'hidden'}><Analytics period={period} /></div>
         <div className={page === 'config' ? '' : 'hidden'}><Config /></div>
       </ErrorBoundary>
       <Toaster />

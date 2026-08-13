@@ -29,6 +29,47 @@ def list_skills(
     return list(db.execute(stmt).scalars())
 
 
+@router.get("/skills/export")
+def export_skills(
+    db: Session = Depends(get_db),
+    format: str = Query(default="json", pattern="^(json|csv)$"),
+    category: str | None = None,
+):
+    """导出所有 Skill 为 JSON 或 CSV 文件。"""
+    from fastapi.responses import StreamingResponse
+    import csv as csv_mod
+    import io
+
+    stmt = select(Skill).order_by(desc(Skill.updated_at))
+    if category:
+        stmt = stmt.where(Skill.category == category)
+    skills = list(db.execute(stmt).scalars())
+
+    rows = [SkillRead.model_validate(s).model_dump() for s in skills]
+
+    if format == "csv":
+        output = io.StringIO()
+        if rows:
+            writer = csv_mod.DictWriter(output, fieldnames=rows[0].keys())
+            writer.writeheader()
+            for row in rows:
+                flat = {k: (str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v) for k, v in row.items()}
+                writer.writerow(flat)
+        output.seek(0)
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=evowork_skills.csv"},
+        )
+
+    import json
+    return StreamingResponse(
+        iter([json.dumps(rows, ensure_ascii=False, indent=2, default=str)]),
+        media_type="application/json",
+        headers={"Content-Disposition": "attachment; filename=evowork_skills.json"},
+    )
+
+
 @router.post("/skills", response_model=SkillRead)
 def create_skill(payload: SkillCreate, db: Session = Depends(get_db)) -> Skill:
     skill = Skill(**payload.model_dump())

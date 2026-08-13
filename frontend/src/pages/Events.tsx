@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
-import { Trash2, Plus, Calendar, Pencil, X, Check, History, ChevronDown, ChevronUp, Filter, Search, GitCompare, RotateCcw } from 'lucide-react';
+import { Trash2, Plus, Calendar, Pencil, X, Check, History, ChevronDown, ChevronUp, Filter, Search, GitCompare, RotateCcw, Download } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -34,6 +34,8 @@ const OUTCOME_VARIANT: Record<string, 'success' | 'warning' | 'destructive'> = {
   unresolved: 'destructive',
   failed: 'destructive',
 };
+
+const EVENT_PAGE_SIZE = 50;
 
 /* Source color mapping */
 const SOURCE_COLOR: Record<string, string> = {
@@ -270,14 +272,31 @@ export default function Events() {
   // Expanded events
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
+  // Pagination state
+  const [totalEvents, setTotalEvents] = useState(0);
+  const [eventOffset, setEventOffset] = useState(0);
+  const offsetRef = useRef(0);
+
   // Toast + confirm
   const { toast } = useToast();
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  const fetchEvents = useCallback(async () => {
+  const fetchEvents = useCallback(async (append = false) => {
     try {
-      const data = await api.listEvents();
-      setEvents(data);
+      const offset = append ? offsetRef.current : 0;
+      const res = await api.listEvents({ limit: EVENT_PAGE_SIZE, offset });
+      const newEvents = res.events ?? res;
+      const total = res.total ?? newEvents.length;
+
+      if (append) {
+        setEvents((prev) => [...prev, ...newEvents]);
+      } else {
+        setEvents(newEvents);
+      }
+
+      offsetRef.current = offset + newEvents.length;
+      setEventOffset(offsetRef.current);
+      setTotalEvents(total);
     } catch {
       /* swallow */
     }
@@ -520,6 +539,26 @@ export default function Events() {
                 Event Timeline
                 <Badge variant="secondary" className="text-xs">{filteredEvents.length}</Badge>
               </CardTitle>
+              <div className="flex items-center gap-1">
+                <a
+                  href={api.exportEvents('json')}
+                  download="events.json"
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+                  title="Export JSON"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  JSON
+                </a>
+                <a
+                  href={api.exportEvents('csv')}
+                  download="events.csv"
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+                  title="Export CSV"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  CSV
+                </a>
+              </div>
             </div>
 
             {/* Search */}
@@ -793,6 +832,21 @@ export default function Events() {
                     </div>
                   </div>
                 ))}
+                {totalEvents > eventOffset && (
+                  <div className="flex justify-center pt-2 pb-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fetchEvents(true)}
+                      className="gap-2"
+                    >
+                      Load More
+                      <Badge variant="secondary" className="text-[10px] h-4 px-1.5">
+                        {totalEvents - eventOffset} remaining
+                      </Badge>
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>

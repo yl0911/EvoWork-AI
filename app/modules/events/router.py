@@ -70,18 +70,25 @@ def _revision_to_dict(r: EventRevision) -> dict:
 def list_events(
     db: Session = Depends(get_db),
     limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     project: str | None = None,
     event_type: str | None = None,
     event_layer: str | None = None,
-) -> list[dict]:
-    stmt = select(WorkEvent)
+) -> dict:
+    # 过滤条件
+    base_stmt = select(WorkEvent)
     if project:
-        stmt = stmt.where(WorkEvent.project == project)
+        base_stmt = base_stmt.where(WorkEvent.project == project)
     if event_type:
-        stmt = stmt.where(WorkEvent.event_type == event_type)
+        base_stmt = base_stmt.where(WorkEvent.event_type == event_type)
     if event_layer:
-        stmt = stmt.where(WorkEvent.event_layer == event_layer)
-    stmt = stmt.order_by(desc(WorkEvent.started_at)).limit(limit)
+        base_stmt = base_stmt.where(WorkEvent.event_layer == event_layer)
+
+    # 总数（用于分页）
+    total = db.execute(select(func.count()).select_from(base_stmt.subquery())).scalar() or 0
+
+    # 分页查询
+    stmt = base_stmt.order_by(desc(WorkEvent.started_at)).offset(offset).limit(limit)
     events = list(db.execute(stmt).scalars())
 
     # 批量查询 revision_count
@@ -102,7 +109,56 @@ def list_events(
         d = WorkEventRead.model_validate(ev).model_dump()
         d["revision_count"] = counts.get(ev.id, 0)
         result.append(d)
-    return result
+    return {"events": result, "total": total, "offset": offset, "limit": limit}
+
+
+@router.get("/events/export")
+def export_events(
+    db: Session = Depends(get_db),
+    format: str = Query(default="json", pattern="^(json|csv)$"),
+    project: str | None = None,
+    event_type: str | None = None,
+    event_layer: str | None = None,
+):
+    """导出所有事件为 JSON 或 CSV 文件。"""
+    from fastapi.responses import StreamingResponse
+    import csv as csv_mod
+    import io
+
+    stmt = select(WorkEvent)
+    if project:
+        stmt = stmt.where(WorkEvent.project == project)
+    if event_type:
+        stmt = stmt.where(WorkEvent.event_type == event_type)
+    if event_layer:
+        stmt = stmt.where(WorkEvent.event_layer == event_layer)
+    stmt = stmt.order_by(desc(WorkEvent.started_at))
+    events = list(db.execute(stmt).scalars())
+
+    rows = [WorkEventRead.model_validate(ev).model_dump() for ev in events]
+
+    if format == "csv":
+        output = io.StringIO()
+        if rows:
+            writer = csv_mod.DictWriter(output, fieldnames=rows[0].keys())
+            writer.writeheader()
+            for row in rows:
+                # Flatten dicts for CSV
+                flat = {k: (str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v) for k, v in row.items()}
+                writer.writerow(flat)
+        output.seek(0)
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=evowork_events.csv"},
+        )
+
+    import json
+    return StreamingResponse(
+        iter([json.dumps(rows, ensure_ascii=False, indent=2, default=str)]),
+        media_type="application/json",
+        headers={"Content-Disposition": "attachment; filename=evowork_events.json"},
+    )
 
 
 @router.post("/events", response_model=WorkEventRead)

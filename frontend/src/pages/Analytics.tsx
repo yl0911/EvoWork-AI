@@ -42,9 +42,6 @@ interface PatternData {
 }
 
 /* ---------- constants ---------- */
-const PERIODS = ['week', 'month', 'year'] as const;
-type Period = (typeof PERIODS)[number];
-
 const BAR_COLORS = [
   '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899',
   '#f43f5e', '#f97316', '#eab308', '#22c55e', '#06b6d4',
@@ -84,9 +81,11 @@ function normalizeEfficiency(data: any): EfficiencyData {
 }
 
 /* ---------- component ---------- */
-export default function Analytics() {
-  const [period, setPeriod] = useState<Period>('week');
+interface AnalyticsProps {
+  period: 'week' | 'month' | 'year';
+}
 
+export default function Analytics({ period }: AnalyticsProps) {
   const [habit, setHabit] = useState<HabitEntry[]>([]);
   const [problems, setProblems] = useState<RepeatedProblem[]>([]);
   const [efficiency, setEfficiency] = useState<EfficiencyData>({ resolve_rate: 0, outcomes: {} });
@@ -152,19 +151,6 @@ export default function Analytics() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">Analytics Dashboard</h1>
-        <div className="inline-flex items-center rounded-md border bg-muted/50 p-0.5">
-          {PERIODS.map((p) => (
-            <button
-              key={p}
-              onClick={() => setPeriod(p)}
-              className={`rounded-sm px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
-                period === p ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {p}
-            </button>
-          ))}
-        </div>
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
