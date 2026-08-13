@@ -9,9 +9,17 @@ EVOWORK_SHELL_BATCH_API="${EVOWORK_SHELL_BATCH_API:-http://127.0.0.1:8000/api/co
 EVOWORK_BUFFER_FILE="${EVOWORK_BUFFER_FILE:-$HOME/.evowork_shell_buffer.log}"
 EVOWORK_FLUSH_INTERVAL="${EVOWORK_FLUSH_INTERVAL:-30}"  # 秒，缓冲区刷新间隔
 EVOWORK_SHELL_ENABLED="${EVOWORK_SHELL_ENABLED:-1}"
+EVOWORK_API_KEY="${EVOWORK_API_KEY:-}"
 
 # 内部状态
 _evowork_last_flush=0
+
+# API Key 认证头（仅在 EVOWORK_API_KEY 非空时生效）
+_evowork_auth_header() {
+    if [ -n "$EVOWORK_API_KEY" ]; then
+        printf '-H "X-API-Key: %s"' "$EVOWORK_API_KEY"
+    fi
+}
 
 # ── Hook 函数 ─────────────────────────────────────
 
@@ -55,19 +63,26 @@ _evowork_shell_hook() {
 
     # 尝试发送，失败则写入本地缓冲
     if command -v curl >/dev/null 2>&1; then
-        curl -s -X POST \
-            -H "Content-Type: application/json" \
-            -d "$payload" \
+        local auth_hdr=""
+        [ -n "$EVOWORK_API_KEY" ] && auth_hdr="-H \"X-API-Key: $EVOWORK_API_KEY\""
+        eval curl -s -X POST \
+            -H '"Content-Type: application/json"' \
+            $auth_hdr \
+            -d '"$payload"' \
             --connect-timeout 2 \
             --max-time 3 \
-            "$EVOWORK_SHELL_API" >/dev/null 2>&1 &
+            '"$EVOWORK_SHELL_API"' >/dev/null 2>&1 '&'
     elif command -v python3 >/dev/null 2>&1; then
         python3 -c "
-import urllib.request, json, sys
+import urllib.request, json, sys, os
 try:
+    headers = {'Content-Type': 'application/json'}
+    api_key = os.environ.get('EVOWORK_API_KEY', '')
+    if api_key:
+        headers['X-API-Key'] = api_key
     req = urllib.request.Request('$EVOWORK_SHELL_API',
         data=json.dumps(json.loads('''$payload''')).encode(),
-        headers={'Content-Type': 'application/json'}, method='POST')
+        headers=headers, method='POST')
     urllib.request.urlopen(req, timeout=3)
 except: pass
 " >/dev/null 2>&1 &
@@ -104,6 +119,7 @@ _evowork_flush_buffer() {
 
     if curl -s -X POST \
         -H "Content-Type: application/json" \
+        $([ -n "$EVOWORK_API_KEY" ] && printf -- '-H "X-API-Key: %s"' "$EVOWORK_API_KEY") \
         -d "$batch_payload" \
         --connect-timeout 3 \
         --max-time 10 \

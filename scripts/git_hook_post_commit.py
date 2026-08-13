@@ -2,16 +2,50 @@
 """Git post-commit hook: 将提交信息发送到 EvoWork-AI 采集器。
 
 用法: 由 git post-commit hook 调用，无需手动运行。
-配置: 修改 EVOWORK_API 指向你的 EvoWork-AI 服务地址。
+配置: 环境变量 EVOWORK_API 指向服务器地址，EVOWORK_API_KEY 可选认证密钥。
+      或在 .git/evowork-env 中设置（每行 KEY=VALUE 格式）。
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
 import urllib.request
 
-EVOWORK_API = "http://127.0.0.1:8000/api/collect/git"
+DEFAULT_API = "http://127.0.0.1:8000/api/collect/git"
+
+
+def _load_env_config() -> None:
+    """从 .git/evowork-env 加载配置（如果存在）。"""
+    try:
+        git_dir = subprocess.check_output(
+            ["git", "rev-parse", "--git-dir"]
+        ).decode("utf-8", errors="replace").strip()
+        env_file = os.path.join(git_dir, "evowork-env")
+        if os.path.isfile(env_file):
+            with open(env_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        key, _, value = line.partition("=")
+                        os.environ.setdefault(key.strip(), value.strip())
+    except Exception:
+        pass  # 静默忽略
+
+
+def _build_request() -> urllib.request.Request:
+    """构建发送请求，支持 API Key 认证。"""
+    api_url = os.environ.get("EVOWORK_API", DEFAULT_API)
+    api_key = os.environ.get("EVOWORK_API_KEY", "")
+
+    info = get_commit_info()
+    data = json.dumps(info).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["X-API-Key"] = api_key
+
+    return urllib.request.Request(api_url, data=data, headers=headers, method="POST"), info
 
 
 def _run_git(*args: str) -> str:
@@ -70,18 +104,12 @@ def get_commit_info() -> dict:
 
 def main():
     try:
-        info = get_commit_info()
-        data = json.dumps(info).encode("utf-8")
-        req = urllib.request.Request(
-            EVOWORK_API,
-            data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
+        _load_env_config()
+        req, info = _build_request()
         resp = urllib.request.urlopen(req, timeout=5)
         result = json.loads(resp.read())
         status = result.get("status", "unknown")
-        print(f"[EvoWork] Commit {info['sha'][:8]} → {status}")
+        print(f"[EvoWork] Commit {info['sha'][:8]} -> {status}")
     except Exception as e:
         # 不阻断 commit 流程
         print(f"[EvoWork] Failed to record commit: {e}", file=sys.stderr)

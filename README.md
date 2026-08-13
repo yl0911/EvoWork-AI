@@ -84,6 +84,36 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
 
 The app works out of the box with SQLite and demo data — no external LLM or vector store required for basic functionality.
 
+## New Machine Setup
+
+When setting up EvoWork on a new computer, use the one-click setup script to configure all data collectors at once:
+
+```bash
+# Basic setup (local server, no git repos)
+python scripts/setup_collectors.py
+
+# With git repos and remote server
+python scripts/setup_collectors.py \
+  --server-url http://my-server:8000 \
+  --repos ~/code/project-a ~/code/project-b
+
+# With API key authentication
+python scripts/setup_collectors.py --api-key my-secret-key
+
+# Skip specific collectors
+python scripts/setup_collectors.py --skip-browser --skip-activitywatch
+```
+
+The script automatically:
+
+- Installs Git post-commit hooks for specified repositories (with per-repo server URL config in `.git/evowork-env`)
+- Installs Shell PROMPT_COMMAND hook to `.bashrc`/`.zshrc` (with auto-detect of shell type)
+- Compiles and packages the VSCode extension (generates `.vsix` for installation)
+- Detects ActivityWatch and runs an initial data import
+- Prints Chrome extension installation instructions
+
+All settings are idempotent — safe to re-run on the same machine.
+
 ## Configuration
 
 Copy `.env.example` to `.env` and adjust as needed:
