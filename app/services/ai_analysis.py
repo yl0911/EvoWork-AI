@@ -153,9 +153,28 @@ def _cached_response(cached: AICache) -> dict:
 
 
 def build_chat_context(db: Session, period: str = "week") -> str:
-    """构建 AI 聊天的系统上下文（事件 + 统计 + 分析数据）。"""
+    """构建 AI 聊天的系统上下文（事件 + 统计 + Skills + 分析数据）。"""
     events = _load_period_events(db, period)
     insights = summarize_insights(db, period=period)
+
+    # 加载用户 Skills 概要
+    skills_context = ""
+    try:
+        from app.models import Skill
+        user_skills = list(
+            db.execute(
+                select(Skill).where(Skill.system_skill == False).order_by(Skill.updated_at.desc()).limit(20)  # noqa: E712
+            ).scalars()
+        )
+        if user_skills:
+            skill_lines = []
+            for s in user_skills:
+                eff_str = f", 效果{round(s.avg_effectiveness * 100)}%" if s.avg_effectiveness else ""
+                usage_str = f"使用{s.usage_count}次" if s.usage_count else "未使用"
+                skill_lines.append(f"- {s.name} ({s.category}, {usage_str}{eff_str})")
+            skills_context = "--- 用户 Skill 库 ---\n" + "\n".join(skill_lines)
+    except Exception:
+        pass
 
     analytics_context = ""
     try:
@@ -201,6 +220,8 @@ def build_chat_context(db: Session, period: str = "week") -> str:
     sections = [
         f"统计信息:\n{insights}",
     ]
+    if skills_context:
+        sections.append(skills_context)
     if analytics_context:
         sections.append(analytics_context)
     sections.append(f"事件列表:\n{_format_events(events)}")

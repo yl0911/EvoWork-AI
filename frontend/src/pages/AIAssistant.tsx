@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
   Send, Sparkles, Brain, BarChart3, StopCircle,
-  RotateCcw, Bot, User, Loader2,
+  RotateCcw, Bot, User, Loader2, Copy, Check,
+  BookOpen, TrendingUp, Lightbulb,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 
@@ -15,6 +17,7 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   streaming?: boolean;
+  copied?: boolean;
 }
 
 interface AIAssistantProps {
@@ -26,7 +29,7 @@ const PRIMARY_LIGHT = 'hsl(262, 83%, 96%)';
 
 const QUICK_ACTIONS = [
   {
-    label: '生成周期复盘',
+    label: '周期复盘',
     icon: Sparkles,
     prompt: '请基于我近期的工作数据，生成一个详细的周期复盘，包括工作概览、习惯模式、认知卡点、建议 Skill 和下一步行动。',
   },
@@ -40,7 +43,38 @@ const QUICK_ACTIONS = [
     icon: BarChart3,
     prompt: '请分析我近期的终端命令使用情况和工作节奏数据，找出工作流优化机会和时间管理建议。',
   },
+  {
+    label: '效率瓶颈',
+    icon: TrendingUp,
+    prompt: '请分析我近期的工作数据，找出效率瓶颈和时间浪费点，给出具体的改进建议。重点关注频繁切换、重复操作和长时间低产出事件。',
+  },
+  {
+    label: '学习建议',
+    icon: Lightbulb,
+    prompt: '基于我近期遇到的问题和技术研究方向，推荐适合我深入学习的主题和资源，并规划一个简要的学习路径。',
+  },
 ];
+
+/* Follow-up suggestions based on response content */
+function getFollowUps(content: string): string[] {
+  const followUps: string[] = [];
+  if (content.includes('Skill') || content.includes('skill') || content.includes('技能')) {
+    followUps.push('帮我把这个 Skill 草稿保存下来');
+  }
+  if (content.includes('卡点') || content.includes('问题') || content.includes('barrier')) {
+    followUps.push('针对这个卡点，给出具体的解决方案');
+  }
+  if (content.includes('命令') || content.includes('shell') || content.includes('终端')) {
+    followUps.push('帮我把频繁使用的命令整理成脚本');
+  }
+  if (content.includes('时间') || content.includes('节奏') || content.includes('高峰')) {
+    followUps.push('给我制定一个基于数据的最优工作日安排');
+  }
+  if (content.includes('下一步') || content.includes('行动')) {
+    followUps.push('帮我把这些行动项细化为具体步骤');
+  }
+  return followUps.slice(0, 3);
+}
 
 export default function AIAssistant({ period }: AIAssistantProps) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -106,7 +140,6 @@ export default function AIAssistant({ period }: AIAssistantProps) {
           const data = trimmed.slice(6);
 
           if (data === '[DONE]') {
-            // Finalize
             setMessages(prev => prev.map((m, i) =>
               i === assistantIdx ? { ...m, streaming: false } : m
             ));
@@ -132,7 +165,6 @@ export default function AIAssistant({ period }: AIAssistantProps) {
         }
       }
 
-      // Stream ended without [DONE]
       setMessages(prev => prev.map((m, i) =>
         i === assistantIdx ? { ...m, streaming: false } : m
       ));
@@ -183,12 +215,32 @@ export default function AIAssistant({ period }: AIAssistantProps) {
     setInput('');
   }, [loading, abortCtrl]);
 
+  const handleCopy = useCallback(async (content: string, idx: number) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setMessages(prev => prev.map((m, i) =>
+        i === idx ? { ...m, copied: true } : m
+      ));
+      setTimeout(() => {
+        setMessages(prev => prev.map((m, i) =>
+          i === idx ? { ...m, copied: false } : m
+        ));
+      }, 2000);
+    } catch {
+      /* clipboard not available */
+    }
+  }, []);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   };
+
+  /* Get follow-ups for last assistant message */
+  const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant' && !m.streaming);
+  const followUps = lastAssistantMsg ? getFollowUps(lastAssistantMsg.content) : [];
 
   return (
     <div className="flex h-full flex-col p-4">
@@ -262,34 +314,75 @@ export default function AIAssistant({ period }: AIAssistantProps) {
                   </div>
 
                   {/* Bubble */}
-                  <div
-                    className="max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed"
-                    style={{
-                      backgroundColor: msg.role === 'user' ? PRIMARY : 'hsl(var(--muted))',
-                      color: msg.role === 'user' ? 'white' : undefined,
-                      borderTopRightRadius: msg.role === 'user' ? '4px' : undefined,
-                      borderTopLeftRadius: msg.role === 'assistant' ? '4px' : undefined,
-                    }}
-                  >
-                    <div className="whitespace-pre-wrap break-words">
-                      {msg.content}
-                      {msg.streaming && (
-                        <span
-                          className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm"
-                          style={{ backgroundColor: PRIMARY }}
-                        />
+                  <div className="group relative max-w-[80%]">
+                    <div
+                      className="rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed"
+                      style={{
+                        backgroundColor: msg.role === 'user' ? PRIMARY : 'hsl(var(--muted))',
+                        color: msg.role === 'user' ? 'white' : undefined,
+                        borderTopRightRadius: msg.role === 'user' ? '4px' : undefined,
+                        borderTopLeftRadius: msg.role === 'assistant' ? '4px' : undefined,
+                      }}
+                    >
+                      {msg.role === 'assistant' ? (
+                        <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:my-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0.5 prose-pre:my-1">
+                          <ReactMarkdown>{msg.content}</ReactMarkdown>
+                          {msg.streaming && (
+                            <span
+                              className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm"
+                              style={{ backgroundColor: PRIMARY }}
+                            />
+                          )}
+                        </div>
+                      ) : (
+                        <div className="whitespace-pre-wrap break-words">
+                          {msg.content}
+                        </div>
                       )}
                     </div>
+
+                    {/* Message actions (assistant only, not streaming) */}
+                    {msg.role === 'assistant' && !msg.streaming && msg.content && (
+                      <div className="mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(msg.content, idx)}
+                          className="rounded p-1 text-muted-foreground hover:bg-secondary"
+                          title="复制"
+                        >
+                          {msg.copied ? (
+                            <Check className="h-3 w-3 text-green-600" />
+                          ) : (
+                            <Copy className="h-3 w-3" />
+                          )}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
+
+              {/* Follow-up suggestions */}
+              {!loading && followUps.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pl-9.5">
+                  {followUps.map((q, i) => (
+                    <button
+                      key={i}
+                      onClick={() => handleQuickAction(q)}
+                      className="rounded-full border border-border/60 bg-background px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
 
         {/* Quick actions bar (shown when there are messages) */}
         {messages.length > 0 && (
-          <div className="flex gap-1.5 border-t px-4 py-2">
+          <div className="flex flex-wrap gap-1.5 border-t px-4 py-2">
             {QUICK_ACTIONS.map(action => (
               <Button
                 key={action.label}
