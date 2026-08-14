@@ -6,6 +6,7 @@ pydantic>=2.6
 pydantic-settings>=2.2
 chromadb>=0.5
 duckdb>=1.0
+apscheduler>=3.10
 
 # ── Dev (optional) ──────────────────────────────────
 # pip install -r requirements.txt

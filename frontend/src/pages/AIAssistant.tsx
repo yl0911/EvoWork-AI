@@ -19,6 +19,7 @@ interface Message {
   content: string;
   streaming?: boolean;
   copied?: boolean;
+  skillSaved?: boolean;
 }
 
 interface Conversation {
@@ -374,6 +375,99 @@ export default function AIAssistant({ period }: AIAssistantProps) {
     } catch {}
   }, []);
 
+  /** 检测消息是否包含 Skill 内容 */
+  const hasSkillContent = useCallback((content: string): boolean => {
+    const patterns = [
+      /## Skill/i,
+      /\*\*Skill (名称|类型)\*\*/i,
+      /Skill 名称[:：]/,
+      /Skill 类型[:：]/,
+      /触发条件[:：]/,
+      /\*\*触发条件\*\*[:：]/,
+      /方法论步骤/,
+      /适用场景[:：]/,
+    ];
+    const matchCount = patterns.filter(p => p.test(content)).length;
+    return matchCount >= 2; // 至少匹配 2 个模式才算 Skill 内容
+  }, []);
+
+  /** 从聊天消息中解析并保存 Skill */
+  const handleSaveSkill = useCallback(async (content: string, idx: number) => {
+    // 尝试提取 Skill 名称
+    let name = '';
+    const namePatterns = [
+      /## Skill \d+[:：]\s*(.+)/,
+      /\*\*Skill 名称\*\*[:：]\s*(.+)/,
+      /Skill 名称[:：]\s*(.+)/,
+    ];
+    for (const p of namePatterns) {
+      const m = content.match(p);
+      if (m) { name = m[1].trim().replace(/^\[|\]$/g, ''); break; }
+    }
+    if (!name) {
+      // 回退：用第一行或前 30 字符
+      const firstLine = content.split('\n')[0].replace(/^#+\s*/, '').trim();
+      name = firstLine.slice(0, 30) || 'AI 生成 Skill';
+    }
+
+    // 提取字段
+    const extract = (label: string): string => {
+      const patterns = [
+        new RegExp(`\\*\\*${label}\\*\\*[:：]\\s*(.+?)(?=\\n\\*\\*|\\n##|$)`, 's'),
+        new RegExp(`${label}[:：]\\s*(.+?)(?=\\n\\*\\*|\\n##|\\n$)`, 's'),
+      ];
+      for (const p of patterns) {
+        const m = content.match(p);
+        if (m) return m[1].trim();
+      }
+      return '';
+    };
+
+    const extractSteps = (): string[] => {
+      const stepsSection = content.match(/(?:方法论步骤|步骤)\*\*[:：]?\s*\n([\s\S]*?)(?=\n\*\*|$)/);
+      if (!stepsSection) return [];
+      return stepsSection[1]
+        .split('\n')
+        .map(l => l.replace(/^\d+[\.\)]\s*/, '').replace(/^[-•]\s*/, '').trim())
+        .filter(l => l && l.length > 2 && !l.startsWith('（'));
+    };
+
+    const extractList = (label: string): string[] => {
+      const raw = extract(label);
+      if (!raw || raw === '待补充' || raw === '无') return [];
+      return raw.split(/[,，、;；]/).map(s => s.trim()).filter(Boolean);
+    };
+
+    const catRaw = extract('Skill 类型');
+    let category = 'thinking';
+    if (/可复用|reusable/i.test(catRaw)) category = 'reusable';
+    else if (/开源|open.?source/i.test(catRaw)) category = 'open_source';
+
+    const agentParts = extractList('可由 Agent 辅助的部分');
+
+    try {
+      await api.createSkill({
+        name,
+        category,
+        trigger: extract('触发条件') || null,
+        content,
+        steps: extractSteps(),
+        inputs: extractList('需要输入'),
+        outputs: extractList('输出产物'),
+        source: 'ai_generated',
+        success_criteria: extract('成功判断') || null,
+        failure_fallback: extract('失败回退') || null,
+        agent_assistable: agentParts.length > 0,
+        agent_assistable_parts: agentParts.length > 0 ? agentParts : null,
+      });
+      setMessages(prev => prev.map((m, i) =>
+        i === idx ? { ...m, skillSaved: true } : m
+      ));
+    } catch (err) {
+      console.error('Save skill error:', err);
+    }
+  }, []);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -517,7 +611,7 @@ export default function AIAssistant({ period }: AIAssistantProps) {
                         }}
                       >
                         {msg.role === 'assistant' ? (
-                          <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:my-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0.5 prose-pre:my-1">
+                          <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:my-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0.5 prose-pre:my-1" style={{ color: 'hsl(224, 71%, 4%)' }}>
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                             {msg.streaming && (
                               <span
@@ -548,6 +642,25 @@ export default function AIAssistant({ period }: AIAssistantProps) {
                               <Copy className="h-3 w-3" />
                             )}
                           </button>
+                          {hasSkillContent(msg.content) && (
+                            <button
+                              type="button"
+                              onClick={() => handleSaveSkill(msg.content, idx)}
+                              disabled={msg.skillSaved}
+                              className={`rounded px-1.5 py-0.5 text-[11px] transition-colors ${
+                                msg.skillSaved
+                                  ? 'text-green-600 cursor-default'
+                                  : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                              }`}
+                              title={msg.skillSaved ? '已保存到 Skill 库' : '保存为 Skill'}
+                            >
+                              {msg.skillSaved ? (
+                                <span className="flex items-center gap-0.5"><Check className="h-3 w-3" /> 已保存</span>
+                              ) : (
+                                <span className="flex items-center gap-0.5"><Plus className="h-3 w-3" /> 保存为 Skill</span>
+                              )}
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>

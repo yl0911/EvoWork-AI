@@ -18,6 +18,12 @@ class ConfigUpdate(BaseModel):
     collector_api_key: str | None = None
     collector_max_batch_size: int | None = None
 
+    # Analysis Scheduler
+    analysis_schedule_mode: str | None = None
+    analysis_schedule_hour: int | None = None
+    analysis_schedule_minute: int | None = None
+    analysis_schedule_interval_hours: int | None = None
+
 
 # Settings 字段名 → .env 键名 的映射
 _FIELD_TO_ENV: dict[str, str] = {
@@ -36,4 +42,8 @@ _FIELD_TO_ENV: dict[str, str] = {
     "storage_path": "STORAGE_PATH",
     "collector_api_key": "COLLECTOR_API_KEY",
     "collector_max_batch_size": "COLLECTOR_MAX_BATCH_SIZE",
+    "analysis_schedule_mode": "ANALYSIS_SCHEDULE_MODE",
+    "analysis_schedule_hour": "ANALYSIS_SCHEDULE_HOUR",
+    "analysis_schedule_minute": "ANALYSIS_SCHEDULE_MINUTE",
+    "analysis_schedule_interval_hours": "ANALYSIS_SCHEDULE_INTERVAL_HOURS",
 }

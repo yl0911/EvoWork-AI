@@ -39,7 +39,9 @@ class SQLAlchemyGateway(BaseDBGateway):
 
     def init_db(self) -> None:
         # 导入所有模型，确保 Base.metadata 包含所有表定义
-        from app.models import ai_cache, skill, work_event  # noqa: F401
+        from app.models import (  # noqa: F401
+            ai_cache, analyzed_task, analysis_run, skill, work_event,
+        )
 
         Base.metadata.create_all(bind=self.engine)
 

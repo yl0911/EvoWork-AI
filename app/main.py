@@ -31,6 +31,7 @@ from app.migrations.migrate_phase3 import migrate as run_phase3_migration
 from app.migrations.migrate_phase4 import migrate as run_phase4_migration
 from app.migrations.migrate_phase5 import migrate as run_phase5_migration
 from app.migrations.migrate_phase6 import migrate as run_phase6_migration
+from app.migrations.migrate_phase7 import migrate as run_phase7_migration
 from app.migrations.runner import run_migrations
 from app.services.bootstrap import seed_demo_data
 from app.services.indexing import reindex_all
@@ -47,6 +48,7 @@ async def lifespan(app: FastAPI):
         "phase4": run_phase4_migration,
         "phase5": run_phase5_migration,
         "phase6": run_phase6_migration,
+        "phase7": run_phase7_migration,
     }
     applied = run_migrations(settings.database_url, _migrations)
     if applied:
@@ -86,7 +88,14 @@ async def lifespan(app: FastAPI):
         else:
             print("[Index] Vector store not configured, skipping.")
 
+    # ── 定时分析调度器 ──
+    from app.services.scheduler import init_scheduler, shutdown_scheduler
+    init_scheduler()
+
     yield
+
+    # ── 关闭调度器 ──
+    shutdown_scheduler()
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)

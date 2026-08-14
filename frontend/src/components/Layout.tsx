@@ -21,6 +21,8 @@ const NAV_ITEMS = [
   { id: 'config', label: 'Config', icon: Settings },
 ];
 
+const PAGE_LABELS: Record<string, string> = Object.fromEntries(NAV_ITEMS.map(n => [n.id, n.label]));
+
 const PERIODS: { value: 'week' | 'month' | 'year'; label: string }[] = [
   { value: 'week', label: 'Week' },
   { value: 'month', label: 'Month' },
@@ -82,7 +84,7 @@ export default function Layout({ children, currentPage, onNavigate, period, onPe
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header bar */}
         <header className="flex items-center justify-between px-6 h-14 border-b bg-card">
-          <h1 className="text-lg font-semibold capitalize">{currentPage}</h1>
+          <h1 className="text-lg font-semibold">{PAGE_LABELS[currentPage] || currentPage}</h1>
           <div className="flex items-center gap-1 bg-secondary rounded-md p-0.5">
             {PERIODS.map(p => (
               <button

@@ -1,15 +1,26 @@
 const BASE = '/api';
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    ...options,
-  });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => res.statusText);
-    throw new Error(`API ${res.status}: ${detail}`);
+async function request<T>(path: string, options?: RequestInit & { timeout?: number }): Promise<T> {
+  const timeoutMs = options?.timeout ?? 30_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      headers: { 'Content-Type': 'application/json', ...options?.headers },
+      ...options,
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => res.statusText);
+      throw new Error(`API ${res.status}: ${detail}`);
+    }
+    return res.json();
+  } catch (err: any) {
+    if (err.name === 'AbortError') throw new Error('请求超时，请稍后重试');
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return res.json();
 }
 
 export const api = {
@@ -82,6 +93,24 @@ export const api = {
     request<any>(`/ai/conversations/${convId}/messages`, {
       method: 'POST', body: JSON.stringify({ messages }),
     }),
+
+  // AI Event Analysis
+  analyzeEvents: (period: string, refresh = false) =>
+    request<any>('/ai/analyze-events', { method: 'POST', body: JSON.stringify({ period, refresh }), timeout: 600_000 }),
+  analyzedTasks: (period: string, limit = 50, offset = 0) => {
+    const qs = new URLSearchParams({ period, limit: String(limit), offset: String(offset) });
+    return request<any>(`/ai/analyzed-tasks?${qs}`);
+  },
+  analyzedTask: (id: string) => request<any>(`/ai/analyzed-tasks/${id}`),
+  updateAnalyzedTask: (id: string, data: any) =>
+    request<any>(`/ai/analyzed-tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  analysisRuns: (period: string, limit = 10) =>
+    request<any[]>(`/ai/analysis-runs?period=${period}&limit=${limit}`),
+  analysisComparison: (currentPeriod: string, previousPeriod: string) =>
+    request<any>(`/ai/analysis-comparison?current_period=${currentPeriod}&previous_period=${previousPeriod}`),
+  scheduleConfig: () => request<any>('/ai/schedule-config'),
+  updateScheduleConfig: (data: any) =>
+    request<any>('/ai/schedule-config', { method: 'PUT', body: JSON.stringify(data) }),
 
   // Search
   search: (q: string, params?: { topK?: number; scope?: string; source?: string; eventType?: string; project?: string }) => {

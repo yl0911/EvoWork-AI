@@ -10,6 +10,8 @@ A local-first work and learning evolution assistant. EvoWork AI automatically co
 
 **Skills** — Three-tier skill library (Thinking / Reusable / Open Source) with create, edit, toggle, backfill, pattern mining, usage tracking (record effectiveness per use), and AI-powered recommendations based on 30-day activity analysis.
 
+**AI Event Analysis** — Hierarchical period analysis (Week → Month → Year) with calendar-aligned periods (ISO week, calendar month/year). Week analyzes raw events via LLM, Month consolidates Week results, Year consolidates Month results. Supports manual, daily, biweekly (Wed+Sun), and interval scheduling via APScheduler.
+
 **AI Assistant** — Conversational interface with SSE streaming, conversation sidebar (create/switch/delete), persistent chat history (survives page navigation and browser refresh), and context-aware quick actions (period review, skill suggestions, data analysis).
 
 **Search** — Hybrid full-text + vector search (FTS5 + ChromaDB) with keyword highlighting, source/type filters, and trending terms.
@@ -22,11 +24,11 @@ A local-first work and learning evolution assistant. EvoWork AI automatically co
 
 | Layer | Technology |
 |---|---|
-| Backend | FastAPI, SQLAlchemy, DuckDB, ChromaDB, Pydantic v2 |
+| Backend | FastAPI, SQLAlchemy, DuckDB, ChromaDB, Pydantic v2, pydantic-settings, APScheduler |
 | Frontend | React 19, Vite 5, TypeScript, Tailwind CSS v4, shadcn/ui (Radix), Recharts |
 | AI | LLM Gateway (OpenAI-compatible), SSE streaming, vector search |
 | Collectors | Chrome Extension (Manifest V3), VSCode Extension (globalState persistence) |
-| Database | SQLite (default), with sequential migration system (Phase 2–6) |
+| Database | SQLite (default), with sequential migration system (Phase 2–7) |
 
 ## Architecture
 
@@ -37,10 +39,10 @@ EvoWork-AI/
 │   ├── core/                   # Config, dependencies, gateway interfaces
 │   ├── models/                 # SQLAlchemy ORM models
 │   ├── schemas/                # Pydantic request/response schemas
-│   ├── services/               # Business logic (collector, search, skill engine, AI)
+│   ├── services/               # Business logic (collector, search, skill engine, AI, event analysis, scheduler)
 │   ├── modules/                # API routers (ai, analytics, collectors, events, insights, search, skills)
 │   ├── gateways/               # Pluggable LLM/DB/Vector gateway implementations
-│   └── migrations/             # Sequential schema migrations (phase 2–6)
+│   └── migrations/             # Sequential schema migrations (phase 2–7)
 ├── frontend/                   # React SPA (built by Vite, served by FastAPI)
 │   ├── src/pages/              # 7 page components (Dashboard, Events, Skills, AI, Search, Analytics, Config)
 │   ├── src/components/         # UI components (shadcn/ui + custom)

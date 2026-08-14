@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     collector_api_key: str = ""  # empty = no auth required (backward compatible)
     collector_max_batch_size: int = 500  # max events per batch request
 
+    # Analysis Scheduler
+    analysis_schedule_mode: str = "manual"  # "manual" | "daily" | "biweekly" | "interval"
+    analysis_schedule_hour: int = 22  # daily mode: hour (0-23)
+    analysis_schedule_minute: int = 0  # daily mode: minute (0-59)
+    analysis_schedule_interval_hours: int = 6  # interval mode: hours between runs
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -206,6 +206,8 @@ export default function Config() {
   const [formLlmApiKey, setFormLlmApiKey] = useState('');
   const [formCollectorApiKey, setFormCollectorApiKey] = useState('');
   const [formCollectorBatchSize, setFormCollectorBatchSize] = useState(500);
+  const [scheduleCfg, setScheduleCfg] = useState<any>(null);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
   const { toast } = useToast();
 
   const fetchAll = async () => {
@@ -224,6 +226,22 @@ export default function Config() {
   };
 
   useEffect(() => { fetchAll(); }, []);
+
+  useEffect(() => {
+    api.scheduleConfig().then(setScheduleCfg).catch(() => {});
+  }, []);
+
+  const handleScheduleChange = async (mode: string, extra?: Record<string, any>) => {
+    setScheduleSaving(true);
+    try {
+      const res = await api.updateScheduleConfig({ mode, ...extra });
+      setScheduleCfg(res);
+      toast({ title: '调度配置已更新', variant: 'success' });
+    } catch (err: any) {
+      toast({ title: '更新失败', description: err?.message || '', variant: 'destructive' });
+    }
+    setScheduleSaving(false);
+  };
 
   const handleReindex = async () => {
     setReindexing(true);
@@ -493,6 +511,94 @@ export default function Config() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Analysis Schedule Config */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4" style={{ color: PRIMARY }} />
+            <CardTitle className="text-sm">AI 事件分析调度</CardTitle>
+            {scheduleCfg && scheduleCfg.mode !== 'manual' && (
+              <Badge variant="outline" className="text-[10px]">
+                {scheduleCfg.mode === 'daily' ? `每日 ${String(scheduleCfg.hour).padStart(2, '0')}:${String(scheduleCfg.minute).padStart(2, '0')}` : scheduleCfg.mode === 'biweekly' ? `周三+周日 ${String(scheduleCfg.hour).padStart(2, '0')}:${String(scheduleCfg.minute).padStart(2, '0')}` : `每 ${scheduleCfg.interval_hours}h`}
+              </Badge>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">模式:</span>
+              <div className="flex gap-1">
+                {(['manual', 'biweekly', 'daily', 'interval'] as const).map(mode => (
+                  <Button
+                    key={mode}
+                    variant={scheduleCfg?.mode === mode ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-7 text-xs px-2.5"
+                    disabled={scheduleSaving}
+                    onClick={() => handleScheduleChange(mode)}
+                  >
+                    {mode === 'manual' ? '手动' : mode === 'biweekly' ? '每周两次' : mode === 'daily' ? '每日' : '间隔'}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            {(scheduleCfg?.mode === 'daily' || scheduleCfg?.mode === 'biweekly') && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {scheduleCfg?.mode === 'biweekly' ? '时间 (周三+周日):' : '时间:'}
+                </span>
+                <Input
+                  type="number"
+                  className="w-14 h-7 text-xs"
+                  min={0} max={23}
+                  value={scheduleCfg.hour ?? 22}
+                  onChange={e => setScheduleCfg({ ...scheduleCfg, hour: Number(e.target.value) })}
+                />
+                <span className="text-xs">:</span>
+                <Input
+                  type="number"
+                  className="w-14 h-7 text-xs"
+                  min={0} max={59}
+                  value={scheduleCfg.minute ?? 0}
+                  onChange={e => setScheduleCfg({ ...scheduleCfg, minute: Number(e.target.value) })}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs px-2"
+                  disabled={scheduleSaving}
+                  onClick={() => handleScheduleChange(scheduleCfg!.mode, { hour: scheduleCfg!.hour, minute: scheduleCfg!.minute })}
+                >
+                  {scheduleSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                </Button>
+              </div>
+            )}
+            {scheduleCfg?.mode === 'interval' && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">间隔 (小时):</span>
+                <Input
+                  type="number"
+                  className="w-16 h-7 text-xs"
+                  min={1} max={24}
+                  value={scheduleCfg.interval_hours ?? 6}
+                  onChange={e => setScheduleCfg({ ...scheduleCfg, interval_hours: Number(e.target.value) })}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs px-2"
+                  disabled={scheduleSaving}
+                  onClick={() => handleScheduleChange('interval', { interval_hours: scheduleCfg.interval_hours })}
+                >
+                  {scheduleSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                </Button>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Collectors Section */}
       <div className="mt-8">

@@ -19,7 +19,22 @@ from app.schemas.ai import (
     PeriodReviewRequest,
     SkillDraftRequest,
 )
+from app.schemas.analyzed_task import (
+    AnalyzeEventsRequest,
+    AnalyzedTaskRead,
+    AnalyzedTaskUpdate,
+    AnalysisRunRead,
+    ScheduleConfigRead,
+    ScheduleConfigUpdate,
+)
 from app.services.ai_analysis import build_chat_context, generate_period_review, generate_skill_draft
+from app.services.event_analysis import (
+    get_analyzed_tasks,
+    get_analysis_runs,
+    get_period_comparison,
+    run_event_analysis,
+)
+from app.services.scheduler import get_schedule_config, update_schedule
 
 router = APIRouter(tags=["ai"])
 
@@ -45,6 +60,12 @@ CHAT_SYSTEM_BASE = """你是 EvoWork AI 的个人工作与学习进化助手。
 请避免绩效考核、监控、评价员工价值这类表达。
 请用中文，语气克制、具体、可执行。
 如果信息不足，请明确说信息不足，并基于现有事件给出低风险建议。
+
+关于 EvoWork-AI 系统能力（请在回答中引导用户使用这些内置功能，而非建议手动操作）：
+- Dashboard 页面的「AI Skill 草稿」功能可以自动分析工作事件，生成 2-3 个 Skill 草稿，并提供「发布为 Skill」按钮一键保存到 Skill 库。
+- Dashboard 页面的「AI 复盘」功能可以生成包含趋势对比和模式识别的周期复盘报告。
+- Skills 页面可以查看、编辑、追踪所有 Skill 的使用效果。
+- 如果用户想要保存 Skill 草稿，请引导他们使用 Dashboard 的「AI Skill 草稿」功能，而不是建议手动复制 YAML 或手动创建。
 
 下面是用户近期的工作数据上下文，请基于这些数据回答用户的问题：
 
@@ -218,3 +239,184 @@ def delete_conversation(conv_id: str, db: Session = Depends(get_db)):
     db.delete(conv)
     db.commit()
     return {"status": "deleted"}
+
+
+# ── AI Event Analysis ─────────────────────────────────
+
+
+@router.post("/ai/analyze-events")
+def ai_analyze_events(payload: AnalyzeEventsRequest, db: Session = Depends(get_db)):
+    """触发 AI 事件分析：将原始事件转化为结构化任务记录。"""
+    try:
+        run = run_event_analysis(db, period=payload.period, trigger_mode="manual", refresh=payload.refresh)
+        return AnalysisRunRead(
+            id=run.id,
+            period=run.period,
+            period_start=run.period_start.isoformat() if run.period_start else "",
+            period_end=run.period_end.isoformat() if run.period_end else "",
+            trigger_mode=run.trigger_mode,
+            status=run.status,
+            total_events_seen=run.total_events_seen,
+            noise_events_count=run.noise_events_count,
+            tasks_identified=run.tasks_identified,
+            error_message=run.error_message,
+            model=run.model,
+            created_at=run.created_at.isoformat() if run.created_at else "",
+            completed_at=run.completed_at.isoformat() if run.completed_at else None,
+        ).model_dump()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/ai/analyzed-tasks")
+def list_analyzed_tasks(
+    period: str = "week",
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    """获取分析任务列表。"""
+    tasks, total = get_analyzed_tasks(db, period=period, limit=limit, offset=offset)
+    return {
+        "tasks": [
+            AnalyzedTaskRead(
+                id=t.id,
+                period=t.period,
+                period_start=t.period_start.isoformat() if t.period_start else "",
+                period_end=t.period_end.isoformat() if t.period_end else "",
+                title=t.title,
+                problem_description=t.problem_description,
+                actions_taken=t.actions_taken,
+                solution=t.solution,
+                result=t.result,
+                result_detail=t.result_detail,
+                reference_theory=t.reference_theory,
+                efficiency_score=t.efficiency_score,
+                activity_type=t.activity_type,
+                project=t.project,
+                tags=t.tags,
+                sources=t.sources,
+                source_event_ids=t.source_event_ids,
+                analysis_run_id=t.analysis_run_id,
+                model=t.model,
+                created_at=t.created_at.isoformat() if t.created_at else "",
+                updated_at=t.updated_at.isoformat() if t.updated_at else "",
+            ).model_dump()
+            for t in tasks
+        ],
+        "total": total,
+    }
+
+
+@router.get("/ai/analyzed-tasks/{task_id}")
+def get_analyzed_task(task_id: str, db: Session = Depends(get_db)):
+    """获取单个分析任务详情。"""
+    from sqlalchemy import select
+    from app.models import AnalyzedTask
+
+    task = db.execute(
+        select(AnalyzedTask).where(AnalyzedTask.id == task_id)
+    ).scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return AnalyzedTaskRead(
+        id=task.id,
+        period=task.period,
+        period_start=task.period_start.isoformat() if task.period_start else "",
+        period_end=task.period_end.isoformat() if task.period_end else "",
+        title=task.title,
+        problem_description=task.problem_description,
+        actions_taken=task.actions_taken,
+        solution=task.solution,
+        result=task.result,
+        result_detail=task.result_detail,
+        reference_theory=task.reference_theory,
+        efficiency_score=task.efficiency_score,
+        activity_type=task.activity_type,
+        project=task.project,
+        tags=task.tags,
+        sources=task.sources,
+        source_event_ids=task.source_event_ids,
+        analysis_run_id=task.analysis_run_id,
+        model=task.model,
+        created_at=task.created_at.isoformat() if task.created_at else "",
+        updated_at=task.updated_at.isoformat() if task.updated_at else "",
+    ).model_dump()
+
+
+@router.patch("/ai/analyzed-tasks/{task_id}")
+def update_analyzed_task(task_id: str, payload: AnalyzedTaskUpdate, db: Session = Depends(get_db)):
+    """手动修正分析任务（编辑 AI 生成的内容）。"""
+    from sqlalchemy import select
+    from app.models import AnalyzedTask
+
+    task = db.execute(
+        select(AnalyzedTask).where(AnalyzedTask.id == task_id)
+    ).scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    update_data = payload.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(task, key, value)
+
+    db.commit()
+    db.refresh(task)
+    return {"status": "ok", "id": task.id}
+
+
+@router.get("/ai/analysis-runs")
+def list_analysis_runs(
+    period: str = "week",
+    limit: int = 10,
+    db: Session = Depends(get_db),
+):
+    """获取分析运行历史。"""
+    runs = get_analysis_runs(db, period=period, limit=limit)
+    return [
+        AnalysisRunRead(
+            id=r.id,
+            period=r.period,
+            period_start=r.period_start.isoformat() if r.period_start else "",
+            period_end=r.period_end.isoformat() if r.period_end else "",
+            trigger_mode=r.trigger_mode,
+            status=r.status,
+            total_events_seen=r.total_events_seen,
+            noise_events_count=r.noise_events_count,
+            tasks_identified=r.tasks_identified,
+            error_message=r.error_message,
+            model=r.model,
+            created_at=r.created_at.isoformat() if r.created_at else "",
+            completed_at=r.completed_at.isoformat() if r.completed_at else None,
+        ).model_dump()
+        for r in runs
+    ]
+
+
+@router.get("/ai/analysis-comparison")
+def analysis_comparison(
+    current_period: str = "week",
+    previous_period: str = "month",
+    db: Session = Depends(get_db),
+):
+    """对比两个周期的分析任务。"""
+    return get_period_comparison(db, current_period, previous_period)
+
+
+@router.get("/ai/schedule-config")
+def get_schedule():
+    """获取分析调度配置。"""
+    return get_schedule_config()
+
+
+@router.put("/ai/schedule-config")
+def update_schedule_config(payload: ScheduleConfigUpdate):
+    """更新分析调度配置。"""
+    result = update_schedule(
+        mode=payload.mode,
+        hour=payload.hour,
+        minute=payload.minute,
+        interval_hours=payload.interval_hours,
+    )
+    return result

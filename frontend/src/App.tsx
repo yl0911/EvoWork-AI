@@ -18,7 +18,7 @@ export default function App() {
     <Layout currentPage={page} onNavigate={setPage} period={period} onPeriodChange={setPeriod}>
       <ErrorBoundary>
         <div className={page === 'dashboard' ? '' : 'hidden'}><Dashboard period={period} /></div>
-        <div className={page === 'events' ? '' : 'hidden'}><Events /></div>
+        <div className={page === 'events' ? '' : 'hidden'}><Events period={period} /></div>
         <div className={page === 'skills' ? '' : 'hidden'}><Skills /></div>
         <div className={page === 'search' ? '' : 'hidden'}><SearchPage /></div>
         <div className={page === 'ai' ? '' : 'hidden'}><AIAssistant period={period} /></div>

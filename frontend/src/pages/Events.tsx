@@ -3,7 +3,8 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
-import { Trash2, Plus, Calendar, Pencil, X, Check, History, ChevronDown, ChevronUp, Filter, Search, GitCompare, RotateCcw, Download } from 'lucide-react';
+import { Trash2, Plus, Calendar, Pencil, X, Check, History, ChevronDown, ChevronUp, Filter, Search, GitCompare, RotateCcw, Download, Sparkles, Loader2, Lightbulb, ChevronRight } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -36,6 +37,25 @@ const OUTCOME_VARIANT: Record<string, 'success' | 'warning' | 'destructive'> = {
 };
 
 const EVENT_PAGE_SIZE = 50;
+
+const ACTIVITY_TYPES = ['编码开发', '调试修复', '问题排查', '学习调研', '部署运维', '文档写作', '浏览阅读'] as const;
+const ACTIVITY_COLORS: Record<string, string> = {
+  '编码开发': '#22c55e', '调试修复': '#ef4444', '问题排查': '#f59e0b',
+  '学习调研': '#3b82f6', '部署运维': '#8b5cf6', '文档写作': '#06b6d4',
+  '浏览阅读': '#64748b', '其他': '#94a3b8',
+};
+const RESULT_LABELS: Record<string, string> = {
+  resolved: '已解决', partial: '部分完成', unresolved: '未解决', abandoned: '已放弃',
+};
+
+interface AnalyzedTask {
+  id: string; title: string; problem_description: string;
+  actions_taken: string[]; solution: string | null;
+  result: string; result_detail: string | null;
+  reference_theory: string | null; efficiency_score: number | null;
+  activity_type: string; project: string | null;
+  tags: string[]; sources: string[]; created_at: string;
+}
 
 /* Source color mapping */
 const SOURCE_COLOR: Record<string, string> = {
@@ -249,7 +269,7 @@ function FilterPill({ label, active, count, onClick }: { label: string; active: 
   );
 }
 
-export default function Events() {
+export default function Events({ period }: { period: 'week' | 'month' | 'year' }) {
   const [events, setEvents] = useState<any[]>([]);
   const [form, setForm] = useState<EventFormData>(EMPTY_FORM);
   const [loading, setLoading] = useState(false);
@@ -280,6 +300,97 @@ export default function Events() {
   // Toast + confirm
   const { toast } = useToast();
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  // ── AI Analyzed Tasks ──
+  const [activeTab, setActiveTab] = useState<string>('analyzed');
+  const [analyzedTasks, setAnalyzedTasks] = useState<AnalyzedTask[]>([]);
+  const [analyzedTotal, setAnalyzedTotal] = useState(0);
+  const [analyzedLoading, setAnalyzedLoading] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set());
+  const [scheduleConfig, setScheduleConfig] = useState<any>(null);
+
+  const fetchAnalyzedTasks = useCallback(async () => {
+    setAnalyzedLoading(true);
+    try {
+      const res = await api.analyzedTasks(period, 100);
+      setAnalyzedTasks(res.tasks ?? []);
+      setAnalyzedTotal(res.total ?? 0);
+    } catch { /* swallow */ }
+    setAnalyzedLoading(false);
+  }, [period]);
+
+  const fetchScheduleConfig = useCallback(async () => {
+    try {
+      const cfg = await api.scheduleConfig();
+      setScheduleConfig(cfg);
+    } catch { /* swallow */ }
+  }, []);
+
+  const handleAnalyze = async () => {
+    setAnalyzing(true);
+    try {
+      const res = await api.analyzeEvents(period);
+      const periodLabel = { week: '本周', month: '本月', year: '本年' }[period];
+      toast({ title: `${periodLabel}分析完成`, description: `识别了 ${res.tasks_identified} 个任务 (共 ${res.total_events_seen} 个事件, 过滤 ${res.noise_events_count} 个噪声)`, variant: 'success' });
+      await fetchAnalyzedTasks();
+    } catch (err: any) {
+      toast({ title: '分析失败', description: err?.message || '请稍后重试', variant: 'destructive' });
+    }
+    setAnalyzing(false);
+  };
+
+  const toggleTaskExpand = (id: string) => {
+    setExpandedTaskIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
+  const [expandedTasksPerProject, setExpandedTasksPerProject] = useState<Record<string, boolean>>({});
+  const [showAllProjects, setShowAllProjects] = useState(false);
+
+  const toggleProjectCollapse = (project: string) => {
+    setCollapsedProjects(prev => {
+      const next = new Set(prev);
+      next.has(project) ? next.delete(project) : next.add(project);
+      return next;
+    });
+  };
+
+  // 按项目分组
+  const groupedByProject = useMemo(() => {
+    const groups: Record<string, { tasks: AnalyzedTask[]; avgEfficiency: number; types: Record<string, number>; results: Record<string, number> }> = {};
+    for (const t of analyzedTasks) {
+      const key = t.project || '未归属';
+      if (!groups[key]) groups[key] = { tasks: [], avgEfficiency: 0, types: {}, results: {} };
+      groups[key].tasks.push(t);
+      groups[key].types[t.activity_type] = (groups[key].types[t.activity_type] || 0) + 1;
+      groups[key].results[t.result] = (groups[key].results[t.result] || 0) + 1;
+    }
+    // 计算平均效率
+    for (const g of Object.values(groups)) {
+      const scored = g.tasks.filter(t => t.efficiency_score != null);
+      g.avgEfficiency = scored.length > 0
+        ? Math.round(scored.reduce((s, t) => s + (t.efficiency_score || 0), 0) / scored.length * 10) / 10
+        : 0;
+    }
+    return Object.entries(groups).sort(([, a], [, b]) => b.tasks.length - a.tasks.length);
+  }, [analyzedTasks]);
+
+  // 默认折叠所有项目
+  useEffect(() => {
+    const allProjects = new Set(groupedByProject.map(([p]) => p));
+    setCollapsedProjects(allProjects);
+    setExpandedTasksPerProject({});
+  }, [groupedByProject]);
+
+  useEffect(() => {
+    fetchAnalyzedTasks();
+    fetchScheduleConfig();
+  }, [fetchAnalyzedTasks, fetchScheduleConfig]);
 
   const fetchEvents = useCallback(async (append = false) => {
     try {
@@ -452,6 +563,208 @@ export default function Events() {
         <Calendar className="h-6 w-6" />
         Events
       </h1>
+
+      {/* ── AI Analyzed Tasks Section ── */}
+      <Card className="mb-6 border-dashed border-primary/30">
+        <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4" style={{ color: 'hsl(262, 83%, 58%)' }} />
+            <CardTitle className="text-base">AI 事件分析</CardTitle>
+            {analyzedTotal > 0 && (
+              <Badge variant="secondary" className="text-xs">{analyzedTotal} 个任务</Badge>
+            )}
+            {scheduleConfig && scheduleConfig.mode !== 'manual' && (
+              <Badge variant="outline" className="text-[10px]">
+                {scheduleConfig.mode === 'daily' ? `每日 ${String(scheduleConfig.hour).padStart(2, '0')}:${String(scheduleConfig.minute).padStart(2, '0')}` : scheduleConfig.mode === 'biweekly' ? `周三+周日 ${String(scheduleConfig.hour).padStart(2, '0')}:${String(scheduleConfig.minute).padStart(2, '0')}` : `每 ${scheduleConfig.interval_hours}h`}
+              </Badge>
+            )}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleAnalyze}
+            disabled={analyzing}
+          >
+            {analyzing ? (
+              <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> 分析中…</>
+            ) : (
+              <><Sparkles className="mr-1.5 h-3.5 w-3.5" /> 立即分析</>
+            )}
+          </Button>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {analyzedLoading ? (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="h-24 animate-pulse rounded-lg bg-secondary/50" />
+              ))}
+            </div>
+          ) : analyzedTasks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center text-muted-foreground">
+              <Lightbulb className="mb-2 h-8 w-8 opacity-40" />
+              <p className="text-sm">暂无分析结果</p>
+              <p className="text-xs">点击「立即分析」让 AI 分析你的工作事件，生成结构化任务记录</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {(showAllProjects ? groupedByProject : groupedByProject.slice(0, 8)).map(([project, group]) => {
+                const isProjectCollapsed = collapsedProjects.has(project);
+                const typeEntries = Object.entries(group.types).sort(([, a], [, b]) => b - a);
+                const resolvedCount = group.results['resolved'] || 0;
+                const showAllTasks = expandedTasksPerProject[project];
+                const visibleTasks = showAllTasks ? group.tasks : group.tasks.slice(0, 5);
+                return (
+                  <div key={project} className="rounded-lg border bg-card">
+                    {/* Project Header */}
+                    <div
+                      className="flex cursor-pointer items-center justify-between px-4 py-2.5 hover:bg-secondary/30"
+                      onClick={() => toggleProjectCollapse(project)}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${isProjectCollapsed ? '' : 'rotate-90'}`} />
+                        <h3 className="text-sm font-semibold" style={{ color: 'hsl(224, 71%, 4%)' }}>{project}</h3>
+                        <Badge variant="secondary" className="text-[10px]">{group.tasks.length} 个任务</Badge>
+                        {group.avgEfficiency > 0 && (
+                          <span className="text-[10px] text-muted-foreground">
+                            平均 {'★'.repeat(Math.round(group.avgEfficiency))}{'☆'.repeat(5 - Math.round(group.avgEfficiency))}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {/* Type distribution mini-badges */}
+                        {typeEntries.slice(0, 4).map(([type, count]) => {
+                          const color = ACTIVITY_COLORS[type] || '#94a3b8';
+                          return (
+                            <Badge key={type} variant="outline" className="text-[9px] px-1 py-0" style={{ borderColor: `${color}40`, color }}>
+                              {type} {count}
+                            </Badge>
+                          );
+                        })}
+                        {resolvedCount > 0 && (
+                          <span className="text-[10px] text-green-600">{resolvedCount}/{group.tasks.length} 已解决</span>
+                        )}
+                      </div>
+                    </div>
+                    {/* Task Cards */}
+                    {!isProjectCollapsed && (
+                      <div className="border-t px-4 py-3">
+                        <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 lg:grid-cols-3">
+                          {visibleTasks.map(task => {
+                          const isExpanded = expandedTaskIds.has(task.id);
+                          const color = ACTIVITY_COLORS[task.activity_type] || '#94a3b8';
+                          return (
+                            <div
+                              key={task.id}
+                              className="group cursor-pointer rounded-lg border bg-background p-3 transition-all hover:border-primary/30 hover:shadow-sm"
+                              onClick={() => toggleTaskExpand(task.id)}
+                            >
+                              {/* Task Header */}
+                              <div className="mb-1.5 flex items-start justify-between gap-2">
+                                <h4 className="text-sm font-semibold leading-tight" style={{ color: 'hsl(224, 71%, 4%)' }}>
+                                  {task.title}
+                                </h4>
+                                <div className="flex shrink-0 items-center gap-1">
+                                  {task.efficiency_score && (
+                                    <span className="text-[10px] font-medium text-muted-foreground">
+                                      {'★'.repeat(task.efficiency_score)}{'☆'.repeat(5 - task.efficiency_score)}
+                                    </span>
+                                  )}
+                                  <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                                </div>
+                              </div>
+                              {/* Badges */}
+                              <div className="mb-1.5 flex flex-wrap gap-1">
+                                <Badge variant="outline" className="text-[10px] px-1.5 py-0" style={{ borderColor: `${color}60`, color }}>
+                                  {task.activity_type}
+                                </Badge>
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] px-1.5 py-0"
+                                  style={{
+                                    borderColor: task.result === 'resolved' ? '#22c55e60' : task.result === 'unresolved' ? '#ef444460' : '#f59e0b60',
+                                    color: task.result === 'resolved' ? '#22c55e' : task.result === 'unresolved' ? '#ef4444' : '#f59e0b',
+                                  }}
+                                >
+                                  {RESULT_LABELS[task.result] || task.result}
+                                </Badge>
+                              </div>
+                              {/* Problem */}
+                              <p className="text-xs text-muted-foreground line-clamp-2">{task.problem_description}</p>
+                              {/* Expanded content */}
+                              {isExpanded && (
+                                <div className="mt-2 space-y-2 border-t pt-2">
+                                  {task.solution && (
+                                    <div>
+                                      <p className="text-[10px] font-semibold text-foreground">方案</p>
+                                      <p className="text-xs text-muted-foreground">{task.solution}</p>
+                                    </div>
+                                  )}
+                                  {task.reference_theory && (
+                                    <div className="rounded-md border-l-3 border-purple-500 bg-purple-50 px-2.5 py-1.5 dark:bg-purple-950/20">
+                                      <p className="text-[10px] font-semibold text-purple-700 dark:text-purple-300">知识点</p>
+                                      <p className="text-xs text-purple-600 dark:text-purple-400">{task.reference_theory}</p>
+                                    </div>
+                                  )}
+                                  {task.actions_taken.length > 0 && (
+                                    <div>
+                                      <p className="text-[10px] font-semibold text-foreground">动作</p>
+                                      <div className="flex flex-wrap gap-1">
+                                        {task.actions_taken.map((a, i) => (
+                                          <span key={i} className="inline-block rounded bg-secondary px-1.5 py-0.5 text-[10px]">{a}</span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {task.result_detail && (
+                                    <p className="text-xs text-muted-foreground">{task.result_detail}</p>
+                                  )}
+                                  <div className="flex flex-wrap gap-1">
+                                    {task.sources.map(s => (
+                                      <Badge key={s} variant="secondary" className="text-[9px] px-1 py-0">{s}</Badge>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        </div>
+                        {group.tasks.length > 5 && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedTasksPerProject(prev => ({ ...prev, [project]: !prev[project] }));
+                            }}
+                            className="mt-2 flex w-full items-center justify-center gap-1 rounded-md py-1.5 text-xs text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+                          >
+                            {showAllTasks ? (
+                              <>收起 <ChevronUp className="h-3 w-3" /></>
+                            ) : (
+                              <>查看更多 ({group.tasks.length - 5} 个隐藏) <ChevronDown className="h-3 w-3" /></>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {groupedByProject.length > 8 && (
+                <button
+                  onClick={() => setShowAllProjects(!showAllProjects)}
+                  className="flex w-full items-center justify-center gap-1 rounded-md py-2 text-xs text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+                >
+                  {showAllProjects ? (
+                    <>收起项目 <ChevronUp className="h-3 w-3" /></>
+                  ) : (
+                    <>展开全部 ({groupedByProject.length} 个项目) <ChevronDown className="h-3 w-3" /></>
+                  )}
+                </button>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-5">
         {/* ---- Left: Create form (2 cols) ---- */}

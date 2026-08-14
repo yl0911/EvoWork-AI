@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -76,6 +76,124 @@ const SOURCE_COLORS: Record<string, string> = {
   ide: '#eab308',
   activitywatch: '#f97316',
 };
+
+/* ---------- word cloud ---------- */
+
+// 稳定 hash：同一 term 每次得到相同值，保证乱序但不随 re-render 跳动
+function hashStr(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+// 频率→颜色：冷(低频)→暖(高频) 色阶
+function heatColor(ratio: number): string {
+  // ratio 0→1  对应  冷蓝→青→绿→黄→橙→红
+  const stops: [number, number, number][] = [
+    [100, 180, 220],  // 0.0  淡蓝
+    [60, 190, 200],   // 0.25 青
+    [80, 180, 120],   // 0.5  绿
+    [240, 180, 50],   // 0.75 金黄
+    [220, 80, 60],    // 1.0  暖红
+  ];
+  const t = Math.max(0, Math.min(1, ratio));
+  const seg = t * (stops.length - 1);
+  const i = Math.min(Math.floor(seg), stops.length - 2);
+  const f = seg - i;
+  const r = Math.round(stops[i][0] + (stops[i + 1][0] - stops[i][0]) * f);
+  const g = Math.round(stops[i][1] + (stops[i + 1][1] - stops[i][1]) * f);
+  const b = Math.round(stops[i][2] + (stops[i + 1][2] - stops[i][2]) * f);
+  return `rgb(${r},${g},${b})`;
+}
+
+function WordCloud({
+  terms,
+  onSearch,
+  maxItems = 24,
+}: {
+  terms: { term: string; count: number }[];
+  onSearch: (term: string) => void;
+  maxItems?: number;
+}) {
+  const items = useMemo(() => {
+    const sliced = terms.slice(0, maxItems);
+    if (sliced.length === 0) return [];
+    const maxCount = Math.max(...sliced.map(t => t.count));
+    const minCount = Math.min(...sliced.map(t => t.count));
+    const range = maxCount - minCount || 1;
+
+    const shuffled = [...sliced].sort((a, b) => hashStr(a.term + 'x') % 97 - hashStr(b.term + 'x') % 97);
+
+    return shuffled.map((t) => {
+      const ratio = (t.count - minCount) / range;
+      const h = hashStr(t.term);
+      const fontSize = 13 + ratio * 26; // 13px ~ 39px
+
+      // 随机旋转：大多数词微倾（-12°~+12°），少量词竖排（90°）
+      const rotSeed = h % 100;
+      let rotate: number;
+      if (rotSeed < 8) rotate = 90;        // ~8% 竖排
+      else if (rotSeed < 14) rotate = -90;  // ~6% 反向竖排
+      else rotate = ((h % 25) - 12);        // -12° ~ +12°
+
+      // 垂直位移打破行对齐（-8px ~ +8px）
+      const jitterY = ((h >> 4) % 17) - 8;
+
+      return {
+        ...t,
+        fontSize,
+        ratio,
+        color: heatColor(ratio),
+        rotate,
+        jitterY,
+        delay: (h % 15) * 45,
+      };
+    });
+  }, [terms, maxItems]);
+
+  if (items.length === 0) return null;
+
+  return (
+    <div
+      className="relative py-2"
+      style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '2px 4px',  // 紧凑间距，让词挤在一起
+        lineHeight: 1.1,
+      }}
+    >
+      {items.map((item) => (
+        <button
+          key={item.term}
+          onClick={() => onSearch(item.term)}
+          className="group relative inline-block cursor-pointer whitespace-nowrap rounded px-1.5 py-0.5 transition-all duration-200 hover:scale-110 hover:!opacity-100"
+          style={{
+            fontSize: `${item.fontSize}px`,
+            color: item.color,
+            opacity: 0.45 + item.ratio * 0.55,
+            fontWeight: item.fontSize > 30 ? 800 : item.fontSize > 22 ? 700 : item.fontSize > 16 ? 600 : 500,
+            letterSpacing: item.fontSize > 24 ? '-0.03em' : '0',
+            transform: `rotate(${item.rotate}deg) translateY(${item.jitterY}px)`,
+            margin: `${item.jitterY > 0 ? 0 : Math.abs(item.jitterY)}px 2px`,
+            animation: `cloudFadeIn 0.5s ease-out ${item.delay}ms both`,
+            transformOrigin: 'center center',
+          }}
+          title={`${item.term} (${item.count})`}
+        >
+          {item.term}
+          <span
+            className="absolute -right-1 -top-1.5 hidden rounded-full bg-background px-1 py-px text-[9px] font-medium text-muted-foreground shadow-sm group-hover:inline-block"
+          >
+            {item.count}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 /* ---------- helpers ---------- */
 function renderHighlight(text: string) {
@@ -436,50 +554,53 @@ export default function Search() {
 
       {/* ===== Empty state with hot terms ===== */}
       {!searched && !loading && hotTerms && (
-        <Card className="border-dashed">
-          <CardContent className="space-y-5 py-8">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <TrendingUp className="h-4 w-4" />
-              <span className="text-sm font-medium">Popular Searches</span>
-            </div>
+        <div className="space-y-4">
+          {/* Inject animation keyframe */}
+          <style>{`
+            @keyframes cloudFadeIn {
+              from { opacity: 0; transform: translateY(8px) scale(0.9); }
+              to { opacity: 1; transform: translateY(0) scale(1); }
+            }
+          `}</style>
 
-            {hotTerms.projects.length > 0 && (
-              <div className="space-y-2">
-                <span className="text-xs text-muted-foreground">Projects</span>
-                <div className="flex flex-wrap gap-2">
-                  {hotTerms.projects.slice(0, 10).map((p) => (
-                    <button
-                      key={p.term}
-                      onClick={() => quickSearch(p.term)}
-                      className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors hover:border-primary/30 hover:bg-primary/5"
-                    >
-                      {p.term}
-                      <span className="text-[10px] text-muted-foreground">{p.count}</span>
-                    </button>
-                  ))}
+          {/* Project word cloud */}
+          {hotTerms.projects.length > 0 && (
+            <Card className="overflow-hidden border-0 shadow-sm" style={{ background: 'linear-gradient(135deg, hsl(250,80%,98%) 0%, hsl(220,80%,97%) 100%)' }}>
+              <CardContent className="py-6">
+                <div className="mb-3 flex items-center gap-2">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-md" style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
+                    <TrendingUp className="h-3.5 w-3.5 text-white" />
+                  </div>
+                  <span className="text-sm font-semibold" style={{ color: '#4338ca' }}>Projects</span>
+                  <span className="text-[10px] text-muted-foreground">{hotTerms.projects.length} 个项目</span>
                 </div>
-              </div>
-            )}
+                <WordCloud terms={hotTerms.projects} onSearch={quickSearch} maxItems={15} />
+              </CardContent>
+            </Card>
+          )}
 
-            {hotTerms.tags.length > 0 && (
-              <div className="space-y-2">
-                <span className="text-xs text-muted-foreground">Tags</span>
-                <div className="flex flex-wrap gap-2">
-                  {hotTerms.tags.slice(0, 12).map((t) => (
-                    <button
-                      key={t.term}
-                      onClick={() => quickSearch(t.term)}
-                      className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors hover:border-primary/30 hover:bg-primary/5"
-                    >
-                      {t.term}
-                      <span className="text-[10px] text-muted-foreground">{t.count}</span>
-                    </button>
-                  ))}
+          {/* Tag word cloud */}
+          {hotTerms.tags.length > 0 && (
+            <Card className="overflow-hidden border-0 shadow-sm" style={{ background: 'linear-gradient(135deg, hsl(190,80%,97%) 0%, hsl(160,80%,97%) 100%)' }}>
+              <CardContent className="py-6">
+                <div className="mb-3 flex items-center gap-2">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-md" style={{ background: 'linear-gradient(135deg, #0ea5e9, #14b8a6)' }}>
+                    <Zap className="h-3.5 w-3.5 text-white" />
+                  </div>
+                  <span className="text-sm font-semibold" style={{ color: '#0369a1' }}>Tags</span>
+                  <span className="text-[10px] text-muted-foreground">{hotTerms.tags.length} 个标签</span>
                 </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                <WordCloud terms={hotTerms.tags} onSearch={quickSearch} maxItems={20} />
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Experience search hint */}
+          <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground">
+            <Zap className="h-3 w-3" />
+            <span>点击下方「Experience Search」可按问题描述语义搜索历史经验</span>
+          </div>
+        </div>
       )}
 
       {/* ===== Experience Search Section ===== */}
