@@ -1,4 +1,4 @@
-# EvoWork AI (智行)
+# EvoWork AI
 
 A local-first work and learning evolution assistant. EvoWork AI automatically collects activity data from Git, shell, browser, IDE, and ActivityWatch, then provides AI-powered insights, skill recommendations, and analytics to help you understand and improve your work patterns.
 
