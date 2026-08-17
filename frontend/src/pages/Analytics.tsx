@@ -461,7 +461,7 @@ export default function Analytics({ period }: AnalyticsProps) {
           <div className="flex flex-wrap items-start gap-8">
             <div className="flex flex-col items-center">
               <span className="text-5xl font-bold tabular-nums text-primary">
-                {Math.round(efficiency.resolve_rate * 100)}
+                {Math.round(efficiency.resolve_rate)}
                 <span className="text-2xl text-muted-foreground">%</span>
               </span>
               <span className="mt-1 text-sm text-muted-foreground">Resolve Rate</span>

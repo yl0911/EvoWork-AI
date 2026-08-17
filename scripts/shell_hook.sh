@@ -24,9 +24,10 @@ _evowork_auth_header() {
 # ── Hook 函数 ─────────────────────────────────────
 
 _evowork_shell_hook() {
+    local _raw_exit=$?
     [ "$EVOWORK_SHELL_ENABLED" = "0" ] && return 0
 
-    local exit_code=$?
+    local exit_code=$_raw_exit
     local cmd
 
     # 获取最后执行的命令
