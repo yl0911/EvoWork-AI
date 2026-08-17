@@ -78,12 +78,13 @@ def _process_single_file(
 
     # 2. 去重检查
     existing = db.execute(
-        select(ImportedNote).where(ImportedNote.file_hash == fc.file_hash)
-    ).scalar_one_or_none()
-    if existing and existing.status == "completed":
+        select(ImportedNote)
+        .where(ImportedNote.file_hash == fc.file_hash, ImportedNote.status == "completed")
+    ).first()
+    if existing:
         # 文件重新出现在 inbox（用户手动放回），允许重新导入
         # 将旧记录标记为 superseded，避免历史混淆
-        existing.status = "superseded"
+        existing[0].status = "superseded"
         db.commit()
 
     # 3. 创建 ImportedNote 记录

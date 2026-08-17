@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 from app.models.work_event import ALL_EVENT_TYPES
 
@@ -63,6 +63,13 @@ class WorkEventRead(WorkEventBase):
 
     model_config = {"from_attributes": True}
 
+    @field_serializer("started_at", "created_at", "updated_at", when_used="unless-none")
+    def _utc_iso(self, v: datetime) -> str:
+        """将 naive datetime 视为 UTC，输出带 Z 后缀的 ISO 字符串。"""
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=timezone.utc)
+        return v.isoformat()
+
 
 class EventRevisionRead(BaseModel):
     """EventRevision 响应 schema。"""
@@ -74,3 +81,9 @@ class EventRevisionRead(BaseModel):
     field_count: int = 0
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("revised_at", when_used="unless-none")
+    def _utc_iso(self, v: datetime) -> str:
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=timezone.utc)
+        return v.isoformat()
