@@ -500,32 +500,7 @@ export default function Events({ period }: { period: 'week' | 'month' | 'year' }
     fetchScheduleConfig();
   }, [fetchAnalyzedTasks, fetchScheduleConfig]);
 
-  const fetchEvents = useCallback(async (append = false) => {
-    try {
-      const offset = append ? offsetRef.current : 0;
-      const res = await api.listEvents({ limit: EVENT_PAGE_SIZE, offset });
-      const newEvents = res.events ?? res;
-      const total = res.total ?? newEvents.length;
-
-      if (append) {
-        setEvents((prev) => [...prev, ...newEvents]);
-      } else {
-        setEvents(newEvents);
-      }
-
-      offsetRef.current = offset + newEvents.length;
-      setEventOffset(offsetRef.current);
-      setTotalEvents(total);
-    } catch {
-      /* swallow */
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchEvents();
-  }, [fetchEvents]);
-
-  /* ── Period start date ── */
+  /* ── Period start date (must be before fetchEvents) ── */
   const periodStart = useMemo(() => {
     const now = new Date();
     if (period === 'week') {
@@ -542,10 +517,43 @@ export default function Events({ period }: { period: 'week' | 'month' | 'year' }
     }
   }, [period]);
 
+  const fetchEvents = useCallback(async (append = false) => {
+    try {
+      const offset = append ? offsetRef.current : 0;
+      const res = await api.listEvents({
+        limit: EVENT_PAGE_SIZE,
+        offset,
+        startedAfter: periodStart.toISOString(),
+      });
+      const newEvents = res.events ?? res;
+      const total = res.total ?? newEvents.length;
+
+      if (append) {
+        setEvents((prev) => [...prev, ...newEvents]);
+      } else {
+        setEvents(newEvents);
+      }
+
+      offsetRef.current = offset + newEvents.length;
+      setEventOffset(offsetRef.current);
+      setTotalEvents(total);
+    } catch {
+      /* swallow */
+    }
+  }, [periodStart]);
+
+  // Reset offset and reload when period changes
+  useEffect(() => {
+    offsetRef.current = 0;
+    setEvents([]);
+    fetchEvents();
+  }, [fetchEvents]);
+
   /* ── Filtering ── */
   const filteredEvents = useMemo(() => {
     let result = events;
-    // Period filter
+    // Period filter already handled server-side via startedAfter,
+    // but keep as safety net for edge cases
     result = result.filter((e) => {
       const d = new Date(e.started_at || e.created_at);
       return d >= periodStart;

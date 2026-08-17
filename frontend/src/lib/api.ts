@@ -25,13 +25,14 @@ async function request<T>(path: string, options?: RequestInit & { timeout?: numb
 
 export const api = {
   // Events
-  listEvents: (params?: { project?: string; event_type?: string; event_layer?: string; limit?: number; offset?: number }) => {
+  listEvents: (params?: { project?: string; event_type?: string; event_layer?: string; limit?: number; offset?: number; startedAfter?: string }) => {
     const qs = new URLSearchParams();
     if (params?.project) qs.set('project', params.project);
     if (params?.event_type) qs.set('event_type', params.event_type);
     if (params?.event_layer) qs.set('event_layer', params.event_layer);
     if (params?.limit) qs.set('limit', String(params.limit));
     if (params?.offset) qs.set('offset', String(params.offset));
+    if (params?.startedAfter) qs.set('started_after', params.startedAfter);
     const q = qs.toString();
     return request<any>(`/events${q ? `?${q}` : ''}`);
   },

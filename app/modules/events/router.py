@@ -74,6 +74,7 @@ def list_events(
     project: str | None = None,
     event_type: str | None = None,
     event_layer: str | None = None,
+    started_after: str | None = None,
 ) -> dict:
     # 过滤条件
     base_stmt = select(WorkEvent)
@@ -83,6 +84,12 @@ def list_events(
         base_stmt = base_stmt.where(WorkEvent.event_type == event_type)
     if event_layer:
         base_stmt = base_stmt.where(WorkEvent.event_layer == event_layer)
+    if started_after:
+        try:
+            after_dt = datetime.fromisoformat(started_after)
+            base_stmt = base_stmt.where(WorkEvent.started_at >= after_dt)
+        except (ValueError, TypeError):
+            pass
 
     # 总数（用于分页）
     total = db.execute(select(func.count()).select_from(base_stmt.subquery())).scalar() or 0
