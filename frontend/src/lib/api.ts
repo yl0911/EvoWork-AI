@@ -143,4 +143,31 @@ export const api = {
 
   // Collectors
   collectorStatus: () => request<any>('/collect/status'),
+
+  // Notes Import
+  notesInboxStatus: () => request<any>('/notes/inbox-status'),
+  notesOpenInbox: () => request<any>('/notes/open-inbox', { method: 'POST' }),
+  notesHistory: (params?: { limit?: number; offset?: number; status?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.offset) qs.set('offset', String(params.offset));
+    if (params?.status) qs.set('status', params.status);
+    const q = qs.toString();
+    return request<any>(`/notes/history${q ? `?${q}` : ''}`);
+  },
+  notesScan: () => request<any>('/notes/scan', { method: 'POST' }),
+  notesUpload: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return fetch(`${BASE}/notes/upload`, {
+      method: 'POST',
+      body: formData,
+    }).then(async (res) => {
+      if (!res.ok) {
+        const detail = await res.text().catch(() => res.statusText);
+        throw new Error(`API ${res.status}: ${detail}`);
+      }
+      return res.json();
+    });
+  },
 };

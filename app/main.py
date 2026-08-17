@@ -26,12 +26,14 @@ from app.modules.insights.router import router as insights_router
 from app.modules.search.router import router as search_router
 from app.modules.skills.router import router as skills_router
 from app.modules.collectors.router import router as collectors_router
+from app.modules.notes.router import router as notes_router
 from app.migrations.migrate_phase2 import migrate as run_phase2_migration
 from app.migrations.migrate_phase3 import migrate as run_phase3_migration
 from app.migrations.migrate_phase4 import migrate as run_phase4_migration
 from app.migrations.migrate_phase5 import migrate as run_phase5_migration
 from app.migrations.migrate_phase6 import migrate as run_phase6_migration
 from app.migrations.migrate_phase7 import migrate as run_phase7_migration
+from app.migrations.migrate_phase8 import migrate as run_phase8_migration
 from app.migrations.runner import run_migrations
 from app.services.bootstrap import seed_demo_data
 from app.services.indexing import reindex_all
@@ -49,6 +51,7 @@ async def lifespan(app: FastAPI):
         "phase5": run_phase5_migration,
         "phase6": run_phase6_migration,
         "phase7": run_phase7_migration,
+        "phase8": run_phase8_migration,
     }
     applied = run_migrations(settings.database_url, _migrations)
     if applied:
@@ -108,6 +111,7 @@ app.include_router(ai_router, prefix="/api")
 app.include_router(search_router, prefix="/api")
 app.include_router(analytics_router, prefix="/api")
 app.include_router(collectors_router, prefix="/api")
+app.include_router(notes_router, prefix="/api")
 
 
 # ── 系统端点 ─────────────────────────────────────────

@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select, func, delete
 from sqlalchemy.orm import Session
 
-from app.core.constants import period_start, calendar_period_key
+from app.core.constants import period_start, calendar_period_key, previous_period_range
 from app.core.dependencies import get_llm_gateway
 from app.models import WorkEvent
 from app.models.analyzed_task import AnalyzedTask
@@ -34,6 +34,37 @@ _MAX_WEEK_SESSIONS = 60
 
 # Month/Year 聚合分析: 底层任务数量低于此值时降级为直接分析
 _MIN_TASKS_FOR_CONSOLIDATION = 10
+
+# 空数据回退: 最多尝试往前几个周期
+_MAX_FALLBACK_PERIODS = 2
+
+
+def _count_events_in_range(db: Session, start: datetime, end: datetime) -> int:
+    """统计指定时间范围内的有意义事件数量。"""
+    from app.services.ai_analysis import _filter_meaningful_events
+    events = list(
+        db.execute(
+            select(WorkEvent)
+            .where(WorkEvent.started_at >= start)
+            .where(WorkEvent.started_at < end)
+            .limit(10)  # 只需判断有没有，不需要全部加载
+        ).scalars()
+    )
+    meaningful = _filter_meaningful_events(events)
+    return len(meaningful)
+
+
+def _load_events_in_range(db: Session, start: datetime, end: datetime) -> list:
+    """加载指定时间范围内的事件。"""
+    return list(
+        db.execute(
+            select(WorkEvent)
+            .where(WorkEvent.started_at >= start)
+            .where(WorkEvent.started_at < end)
+            .order_by(WorkEvent.started_at.desc())
+            .limit(200)
+        ).scalars()
+    )
 
 ANALYSIS_SYSTEM_PROMPT = """你是 EvoWork AI 的工作事件分析引擎。
 你的任务是将一组工作会话（每个会话包含多个来自不同来源的事件）分析为结构化的任务记录。
@@ -318,7 +349,7 @@ def _run_direct_analysis(
     gateway,
 ) -> int:
     """直接分析原始事件：事件→会话→LLM分批→AnalyzedTask。返回创建的任务数。"""
-    all_events = _load_period_events(db, period)
+    all_events = _load_events_in_range(db, p_start, p_end)
     run.total_events_seen = len(all_events)
 
     events = _filter_meaningful_events(all_events)
@@ -398,6 +429,8 @@ def run_event_analysis(
 ) -> AnalysisRun:
     """主入口：运行事件分析，产出结构化 AnalyzedTask。
 
+    当前周期无事件时自动回退到上一周期（最多 _MAX_FALLBACK_PERIODS 个周期）。
+
     Args:
         db: 数据库 session
         period: 分析周期 ("week" / "month" / "year")
@@ -411,12 +444,29 @@ def run_event_analysis(
     if not gateway.configured:
         raise RuntimeError("LLM is not configured.")
 
+    # ── 确定实际分析的周期（支持回退） ──
     p_start = period_start(period)
     p_end = datetime.now(timezone.utc)
-    current_key = calendar_period_key(period)
+    fallback_offset = 0
 
-    # 0. 清理同一日历周期的旧结果（如本周 W33 的旧分析），
-    #    保留其他周期的历史数据供 Month/Year 聚合使用
+    # 检查当前周期是否有事件，没有则回退
+    current_count = _count_events_in_range(db, p_start, p_end)
+    if current_count == 0:
+        for offset in range(1, _MAX_FALLBACK_PERIODS + 1):
+            prev_start, prev_end = previous_period_range(period, offset)
+            prev_count = _count_events_in_range(db, prev_start, prev_end)
+            if prev_count > 0:
+                p_start = prev_start
+                p_end = prev_end
+                fallback_offset = offset
+                print(f"[EventAnalysis] Fallback: current {period} empty, using offset={offset} ({prev_start.date()} ~ {prev_end.date()}, {prev_count} events)")
+                break
+        else:
+            print(f"[EventAnalysis] No events found in current or {_MAX_FALLBACK_PERIODS} previous periods")
+
+    current_key = calendar_period_key(period, p_start)
+
+    # 0. 清理同一日历周期的旧结果
     old_runs = list(db.execute(
         select(AnalysisRun).where(AnalysisRun.period == period)
     ).scalars())
@@ -468,7 +518,7 @@ def run_event_analysis(
         run.completed_at = datetime.now(timezone.utc)
         db.commit()
 
-        print(f"[EventAnalysis] Run {run.id}: {task_count} tasks (period={period})")
+        print(f"[EventAnalysis] Run {run.id}: {task_count} tasks (period={period}, fallback={fallback_offset})")
         return run
 
     except Exception as exc:

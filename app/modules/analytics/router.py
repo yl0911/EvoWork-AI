@@ -66,7 +66,7 @@ def work_patterns(
 
 @router.get("/analytics/timeline")
 def timeline(
-    period: str = Query(default="week", pattern="^(day|week|month)$"),
+    period: str = Query(default="week", pattern="^(day|week|month|year)$"),
     group_by: str = Query(default="project", pattern="^(project|event_type|source)$"),
 ) -> dict:
     """时间线数据：按分组返回事件时间跨度，用于甘特图可视化。"""

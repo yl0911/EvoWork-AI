@@ -32,6 +32,50 @@ def period_start(period: str) -> datetime:
     return now - timedelta(days=days)
 
 
+def previous_period_range(period: str, offset: int = 1) -> tuple[datetime, datetime]:
+    """返回往前 offset 个周期的 (start, end) 时间范围。
+
+    - week offset=1 → 上周一 00:00 ~ 本周一 00:00
+    - month offset=1 → 上月 1 号 00:00 ~ 本月 1 号 00:00
+    - year offset=1 → 去年 1/1 00:00 ~ 今年 1/1 00:00
+    """
+    now = datetime.now(timezone.utc)
+    if period == "week":
+        # 当前周一
+        current_monday = (now - timedelta(days=now.weekday())).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        start = current_monday - timedelta(weeks=offset)
+        end = current_monday - timedelta(weeks=offset - 1)
+        return start, end
+    elif period == "month":
+        # 当前月 1 号
+        current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        # 往前 offset 个月
+        target_month = current_month_start.month - offset
+        target_year = current_month_start.year
+        while target_month <= 0:
+            target_month += 12
+            target_year -= 1
+        start = current_month_start.replace(year=target_year, month=target_month)
+        # end 是 start 的下一个月的 1 号
+        if target_month == 12:
+            end = start.replace(year=target_year + 1, month=1)
+        else:
+            end = start.replace(month=target_month + 1)
+        return start, end
+    elif period == "year":
+        current_year_start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        start = current_year_start.replace(year=current_year_start.year - offset)
+        end = current_year_start.replace(year=current_year_start.year - offset + 1)
+        return start, end
+    # fallback: 按天数
+    days = PERIOD_DAYS.get(period, 7)
+    end = now - timedelta(days=days * (offset - 1))
+    start = end - timedelta(days=days)
+    return start, end
+
+
 def calendar_period_key(period: str, dt: datetime | None = None) -> str:
     """返回当前日历周期的唯一标识符。
 

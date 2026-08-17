@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     analysis_schedule_minute: int = 0  # daily mode: minute (0-59)
     analysis_schedule_interval_hours: int = 6  # interval mode: hours between runs
 
+    # Notes Import
+    notes_inbox_dir: str = "./data/notes/inbox"
+    notes_archive_dir: str = "./data/notes/archive"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

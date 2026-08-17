@@ -3,7 +3,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
-import { Trash2, Plus, Calendar, Pencil, X, Check, History, ChevronDown, ChevronUp, Filter, Search, GitCompare, RotateCcw, Download, Sparkles, Loader2, Lightbulb, ChevronRight } from 'lucide-react';
+import { Trash2, Plus, Calendar, Pencil, X, Check, History, ChevronDown, ChevronUp, Filter, Search, GitCompare, RotateCcw, Download, Sparkles, Loader2, Lightbulb, ChevronRight, FileUp, FolderOpen } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
@@ -19,7 +19,7 @@ const EVENT_TYPES = [
 ] as const;
 
 const EVENT_LAYERS = ['habit', 'problem', 'result'] as const;
-const SOURCES = ['manual', 'browser', 'ide', 'git', 'shell', 'ai_chat', 'document'] as const;
+const SOURCES = ['manual', 'manual_note', 'browser', 'ide', 'git', 'shell', 'ai_chat', 'document'] as const;
 const OUTCOMES = ['resolved', 'partial', 'unresolved', 'failed'] as const;
 const PRIVACY_LEVELS = ['metadata', 'content', 'private'] as const;
 
@@ -62,6 +62,7 @@ const SOURCE_COLOR: Record<string, string> = {
   git: '#22c55e',
   shell: '#a855f7',
   manual: '#3b82f6',
+  manual_note: '#10b981',
   ide: '#f59e0b',
   browser: '#06b6d4',
   ai_chat: '#ec4899',
@@ -301,6 +302,97 @@ export default function Events({ period }: { period: 'week' | 'month' | 'year' }
   const { toast } = useToast();
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
+  // ── Note Import ──
+  const [noteInboxStatus, setNoteInboxStatus] = useState<any>(null);
+  const [noteScanning, setNoteScanning] = useState(false);
+  const [noteUploading, setNoteUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [editingInboxPath, setEditingInboxPath] = useState(false);
+  const [inboxPathDraft, setInboxPathDraft] = useState('');
+
+  const fetchInboxStatus = useCallback(async () => {
+    try {
+      const status = await api.notesInboxStatus();
+      setNoteInboxStatus(status);
+    } catch { /* swallow */ }
+  }, []);
+
+  const handleNoteScan = async () => {
+    setNoteScanning(true);
+    try {
+      const res = await api.notesScan();
+      const msg = `处理 ${res.total} 个文件，创建 ${res.created} 个事件`;
+      toast({
+        title: '笔记导入完成',
+        description: res.errors > 0 ? `${msg}，${res.errors} 个失败` : msg,
+        variant: res.errors > 0 ? 'destructive' : 'success',
+      });
+      await fetchInboxStatus();
+      await fetchEvents();
+    } catch (err: any) {
+      toast({ title: '扫描失败', description: err?.message || '请稍后重试', variant: 'destructive' });
+    }
+    setNoteScanning(false);
+  };
+
+  const handleNoteUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setNoteUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const res = await api.notesUpload(file);
+        toast({
+          title: `${file.name} 导入${res.status === 'completed' ? '成功' : '失败'}`,
+          description: res.events_created > 0 ? `创建了 ${res.events_created} 个事件` : undefined,
+          variant: res.status === 'completed' ? 'success' : 'destructive',
+        });
+      }
+      await fetchInboxStatus();
+      await fetchEvents();
+    } catch (err: any) {
+      toast({ title: '上传失败', description: err?.message || '请稍后重试', variant: 'destructive' });
+    }
+    setNoteUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const startEditInboxPath = () => {
+    setInboxPathDraft(noteInboxStatus?.inbox_path ?? '');
+    setEditingInboxPath(true);
+  };
+
+  const saveInboxPath = async () => {
+    const trimmed = inboxPathDraft.trim();
+    if (!trimmed || trimmed === noteInboxStatus?.inbox_path) {
+      setEditingInboxPath(false);
+      return;
+    }
+    try {
+      await api.updateConfig({ notes_inbox_dir: trimmed });
+      toast({ title: 'Inbox 目录已更新', description: trimmed, variant: 'success' });
+      setEditingInboxPath(false);
+      await fetchInboxStatus();
+    } catch (err: any) {
+      toast({ title: '更新失败', description: err?.message || '请稍后重试', variant: 'destructive' });
+    }
+  };
+
+  const openInboxFolder = async () => {
+    try {
+      const res = await api.notesOpenInbox();
+      if (!res.ok) {
+        toast({ title: '无法打开目录', description: res.error || '请检查路径是否存在', variant: 'destructive' });
+      }
+    } catch (err: any) {
+      toast({ title: '打开失败', description: err?.message || '', variant: 'destructive' });
+    }
+  };
+
+  useEffect(() => {
+    fetchInboxStatus();
+  }, [fetchInboxStatus]);
+
   // ── AI Analyzed Tasks ──
   const [activeTab, setActiveTab] = useState<string>('analyzed');
   const [analyzedTasks, setAnalyzedTasks] = useState<AnalyzedTask[]>([]);
@@ -332,7 +424,23 @@ export default function Events({ period }: { period: 'week' | 'month' | 'year' }
     try {
       const res = await api.analyzeEvents(period);
       const periodLabel = { week: '本周', month: '本月', year: '本年' }[period];
-      toast({ title: `${periodLabel}分析完成`, description: `识别了 ${res.tasks_identified} 个任务 (共 ${res.total_events_seen} 个事件, 过滤 ${res.noise_events_count} 个噪声)`, variant: 'success' });
+
+      // 检测是否发生了回退（实际分析的 period_start 与当前周期不同）
+      const actualStart = new Date(res.period_start);
+      const currentStart = periodStart;
+      const isFallback = actualStart < currentStart;
+
+      let title = `${periodLabel}分析完成`;
+      let description = `识别了 ${res.tasks_identified} 个任务 (共 ${res.total_events_seen} 个事件, 过滤 ${res.noise_events_count} 个噪声)`;
+
+      if (isFallback) {
+        const startStr = `${actualStart.getMonth() + 1}/${actualStart.getDate()}`;
+        const endStr = `${new Date(res.period_end).getMonth() + 1}/${new Date(res.period_end).getDate()}`;
+        title = `${periodLabel}暂无数据，已回退分析`;
+        description = `分析了 ${startStr}~${endStr} 的数据，识别了 ${res.tasks_identified} 个任务`;
+      }
+
+      toast({ title, description, variant: 'success' });
       await fetchAnalyzedTasks();
     } catch (err: any) {
       toast({ title: '分析失败', description: err?.message || '请稍后重试', variant: 'destructive' });
@@ -417,9 +525,31 @@ export default function Events({ period }: { period: 'week' | 'month' | 'year' }
     fetchEvents();
   }, [fetchEvents]);
 
+  /* ── Period start date ── */
+  const periodStart = useMemo(() => {
+    const now = new Date();
+    if (period === 'week') {
+      const day = now.getDay();
+      const diff = day === 0 ? 6 : day - 1; // Monday = 0
+      const monday = new Date(now);
+      monday.setDate(now.getDate() - diff);
+      monday.setHours(0, 0, 0, 0);
+      return monday;
+    } else if (period === 'month') {
+      return new Date(now.getFullYear(), now.getMonth(), 1);
+    } else {
+      return new Date(now.getFullYear(), 0, 1);
+    }
+  }, [period]);
+
   /* ── Filtering ── */
   const filteredEvents = useMemo(() => {
     let result = events;
+    // Period filter
+    result = result.filter((e) => {
+      const d = new Date(e.started_at || e.created_at);
+      return d >= periodStart;
+    });
     if (filterSource !== 'all') {
       result = result.filter((e) => e.source === filterSource);
     }
@@ -437,7 +567,7 @@ export default function Events({ period }: { period: 'week' | 'month' | 'year' }
       );
     }
     return result;
-  }, [events, filterSource, filterType, searchQuery]);
+  }, [events, filterSource, filterType, searchQuery, periodStart]);
 
   /* ── Group by date ── */
   const groupedEvents = useMemo(() => {
@@ -603,7 +733,11 @@ export default function Events({ period }: { period: 'week' | 'month' | 'year' }
             <div className="flex flex-col items-center justify-center py-8 text-center text-muted-foreground">
               <Lightbulb className="mb-2 h-8 w-8 opacity-40" />
               <p className="text-sm">暂无分析结果</p>
-              <p className="text-xs">点击「立即分析」让 AI 分析你的工作事件，生成结构化任务记录</p>
+              {filteredEvents.length === 0 ? (
+                <p className="text-xs">当前{period === 'week' ? '本周' : period === 'month' ? '本月' : '本年'}暂无事件数据，无法进行分析</p>
+              ) : (
+                <p className="text-xs">点击「立即分析」让 AI 分析你的工作事件，生成结构化任务记录</p>
+              )}
             </div>
           ) : (
             <div className="space-y-4">
@@ -767,8 +901,126 @@ export default function Events({ period }: { period: 'week' | 'month' | 'year' }
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-5">
-        {/* ---- Left: Create form (2 cols) ---- */}
-        <Card className="lg:col-span-2">
+        {/* ---- Left: Note Import + Create form (2 cols) ---- */}
+        <div className="space-y-6 lg:col-span-2">
+          {/* Note Import Card */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <FolderOpen className="h-4 w-4" style={{ color: 'hsl(142, 71%, 45%)' }} />
+                笔记导入
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 pt-0">
+              {/* Inbox directory path */}
+              {noteInboxStatus && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span className="shrink-0">Inbox 目录:</span>
+                    {editingInboxPath ? (
+                      <div className="flex flex-1 items-center gap-1">
+                        <Input
+                          value={inboxPathDraft}
+                          onChange={(e) => setInboxPathDraft(e.target.value)}
+                          className="h-7 text-xs font-mono"
+                          onKeyDown={(e) => { if (e.key === 'Enter') saveInboxPath(); if (e.key === 'Escape') setEditingInboxPath(false); }}
+                        />
+                        <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={saveInboxPath}>
+                          <Check className="h-3 w-3 text-green-600" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => setEditingInboxPath(false)}>
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-1 items-center gap-1 min-w-0">
+                        <code className="truncate rounded bg-secondary px-1.5 py-0.5 text-[11px]" title={noteInboxStatus.inbox_path}>
+                          {noteInboxStatus.inbox_path}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={openInboxFolder}
+                          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                          title="打开目录"
+                        >
+                          <FolderOpen className="h-3 w-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={startEditInboxPath}
+                          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                          title="修改目录"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between rounded-md bg-secondary/50 px-3 py-2 text-xs">
+                    <span className="text-muted-foreground">
+                      {noteInboxStatus.total_files} 个待处理文件
+                    </span>
+                    {noteInboxStatus.total_files > 0 && (
+                      <span className="flex flex-wrap gap-1">
+                        {Object.entries(noteInboxStatus.by_type).map(([ext, count]) => (
+                          <Badge key={ext} variant="outline" className="text-[9px] px-1 py-0">
+                            {ext} {count as number}
+                          </Badge>
+                        ))}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
+                  onClick={handleNoteScan}
+                  disabled={noteScanning}
+                >
+                  {noteScanning ? (
+                    <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> 扫描中…</>
+                  ) : (
+                    <><FolderOpen className="mr-1.5 h-3.5 w-3.5" /> 扫描 Inbox</>
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={noteUploading}
+                >
+                  {noteUploading ? (
+                    <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> 上传中…</>
+                  ) : (
+                    <><FileUp className="mr-1.5 h-3.5 w-3.5" /> 上传文件</>
+                  )}
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".md,.txt,.docx,.pdf,.xlsx"
+                  multiple
+                  className="hidden"
+                  onChange={handleNoteUpload}
+                />
+              </div>
+
+              {/* Help text */}
+              <p className="text-[11px] text-muted-foreground">
+                支持 .md / .txt / .docx / .pdf / .xlsx，AI 自动拆分为工作事件。
+                点击上方目录路径可修改 Inbox 目录位置。
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* New Event Card */}
+          <Card>
           <CardHeader>
             <CardTitle>New Event</CardTitle>
           </CardHeader>
@@ -843,6 +1095,7 @@ export default function Events({ period }: { period: 'week' | 'month' | 'year' }
             </form>
           </CardContent>
         </Card>
+        </div>
 
         {/* ---- Right: Event timeline (3 cols) ---- */}
         <Card className="lg:col-span-3">
@@ -923,7 +1176,11 @@ export default function Events({ period }: { period: 'week' | 'month' | 'year' }
           <CardContent>
             {filteredEvents.length === 0 ? (
               <p className="py-12 text-center text-sm text-muted-foreground">
-                {events.length === 0 ? 'No events yet.' : 'No events match your filters.'}
+                {events.length === 0
+                  ? '暂无事件数据'
+                  : events.some(e => new Date(e.started_at || e.created_at) >= periodStart)
+                    ? '没有匹配筛选条件的事件'
+                    : `当前${period === 'week' ? '本周' : period === 'month' ? '本月' : '本年'}暂无事件`}
               </p>
             ) : (
               <div className="space-y-6 max-h-[700px] overflow-y-auto pr-1">

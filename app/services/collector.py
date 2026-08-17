@@ -120,7 +120,7 @@ def _is_noise_command(command: str) -> bool:
 
 _AW_APP_MAP: list[tuple[re.Pattern, str, list[str]]] = [
     # IDE / 编辑器 → coding
-    (re.compile(r"visual studio code|vscode|cursor|vscodium", re.I), "coding", ["ide"]),
+    (re.compile(r"visual studio code|vscode|cursor|vscodium|xcode", re.I), "coding", ["ide"]),
     (re.compile(r"jetbrains|intellij|pycharm|webstorm|goland|rubymine|phpstorm|clion|rider", re.I), "coding", ["ide", "jetbrains"]),
     (re.compile(r"vim|neovim|sublime|atom|emacs", re.I), "coding", ["editor"]),
     # 终端 → coding
@@ -132,14 +132,31 @@ _AW_APP_MAP: list[tuple[re.Pattern, str, list[str]]] = [
     # 设计 → design
     (re.compile(r"figma|sketch|adobe|photoshop|illustrator|xd|invision|canva", re.I), "design", ["design"]),
     # 文档 → writing
-    (re.compile(r"notion|obsidian|typora|logseq|word|pages|onenote", re.I), "writing", ["notes"]),
+    (re.compile(r"notion|obsidian|typora|logseq|word|pages|onenote|numbers|keynote", re.I), "writing", ["notes"]),
     # 项目管理 → planning
     (re.compile(r"jira|asana|trello|linear|clickup|monday", re.I), "planning", ["pm-tool"]),
     # 数据库 → debug
     (re.compile(r"datagrip|dbeaver|tableplus|pgadmin|mysql workbench|studio 3t", re.I), "debug", ["database"]),
     # 容器/运维 → ops
     (re.compile(r"docker desktop|rancher|portainer", re.I), "ops", ["container"]),
+    # macOS 专属
+    (re.compile(r"^mail$", re.I), "communication", ["email-app"]),
+    (re.compile(r"preview", re.I), "reading", ["viewer"]),
 ]
+
+# 系统级噪声应用（跨平台），这些应用的活动不应被记录
+_AW_NOISE_APPS: set[str] = {
+    # macOS
+    "finder", "system preferences", "system settings", "launchpad",
+    "mission control", "loginwindow", "spotlight", "dock",
+    "desktop", "screen saver", "dashboard",
+    # Windows
+    "explorer", "task manager", "action center", "cortana",
+    "start", "search", "shelltraywindow",
+    # Linux
+    "desktop", "gnome-shell", "plasmashell", "xfce4-panel",
+    "nautilus-desktop", "nemo-desktop",
+}
 
 # 浏览器 URL 模式 → 事件类型（更精细的浏览器分类）
 _AW_URL_MAP: list[tuple[re.Pattern, str, list[str]]] = [
@@ -698,6 +715,10 @@ class CollectorService:
         started_at = session["started_at"]
         duration_sec = session["duration_seconds"]
         duration_min = max(1, round(duration_sec / 60))  # 至少 1 分钟
+
+        # 过滤系统级噪声应用
+        if app.lower().strip() in _AW_NOISE_APPS:
+            return IngestResult(status="skipped_duplicate", detail=f"noise app ({app})")
 
         # 过滤太短的 session（< 30 秒视为噪声）
         if duration_sec < 30:

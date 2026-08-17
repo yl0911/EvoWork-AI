@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import duckdb
 from sqlalchemy import select
 
-from app.core.constants import PERIOD_DAYS
+from app.core.constants import PERIOD_DAYS, period_start
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +50,7 @@ class AnalyticsEngine:
         from app.models import WorkEvent
 
         conn = self._get_conn()
-        days = PERIOD_DAYS.get(period, 30)
-        start_date = datetime.now(timezone.utc) - timedelta(days=days)
+        start_date = period_start(period)
 
         try:
             with self._get_db_session() as db:
@@ -265,6 +264,7 @@ class AnalyticsEngine:
 
     def full_analysis(self, period: str = "month") -> dict:
         """完整分析报告。"""
+        work_pat = self.work_patterns(period)
         return {
             "period": period,
             "analyzed_at": datetime.now(timezone.utc).isoformat(),
@@ -273,7 +273,8 @@ class AnalyticsEngine:
             "repeated_problems": self.repeated_problems(period),
             "efficiency_metrics": self.efficiency_metrics(period),
             "shell_commands": self.shell_commands(period),
-            "work_patterns": self.work_patterns(period),
+            "work_patterns": work_pat,
+            "daily_minutes": work_pat.get("daily_minutes", {}),
         }
 
     # ── 时间线 ────────────────────────────────────────
@@ -349,8 +350,7 @@ class AnalyticsEngine:
         from app.models import WorkEvent
 
         conn = self._get_conn()
-        days = PERIOD_DAYS.get(period, 30)
-        start_date = datetime.now(timezone.utc) - timedelta(days=days)
+        start_date = period_start(period)
 
         try:
             with self._get_db_session() as db:
@@ -473,6 +473,7 @@ class AnalyticsEngine:
                     "period": period, "total_events": 0,
                     "hourly_distribution": {}, "project_switches": 0,
                     "active_days": 0, "daily_event_count": {},
+                    "daily_minutes": {},
                 }
 
             conn = self._get_conn()
@@ -498,6 +499,17 @@ class AnalyticsEngine:
             daily_count = {r[0]: r[1] for r in day_rows if r[0]}
             active_days = len(daily_count)
 
+            # 每日分钟数
+            min_rows = conn.execute("""
+                SELECT SUBSTR(started_at, 1, 10) as day_str,
+                       COALESCE(SUM(duration_minutes), 0) as total_min
+                FROM events
+                WHERE started_at != ''
+                GROUP BY day_str
+                ORDER BY day_str
+            """).fetchall()
+            daily_minutes = {r[0]: r[1] for r in min_rows if r[0]}
+
             # 项目切换次数（按时间排序，相邻事件 project 不同则计为一次切换）
             all_events = conn.execute("""
                 SELECT project FROM events
@@ -518,4 +530,5 @@ class AnalyticsEngine:
                 "project_switches": switches,
                 "active_days": active_days,
                 "daily_event_count": daily_count,
+                "daily_minutes": daily_minutes,
             }

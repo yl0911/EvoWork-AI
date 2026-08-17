@@ -24,6 +24,10 @@ class ConfigUpdate(BaseModel):
     analysis_schedule_minute: int | None = None
     analysis_schedule_interval_hours: int | None = None
 
+    # Notes Import
+    notes_inbox_dir: str | None = None
+    notes_archive_dir: str | None = None
+
 
 # Settings 字段名 → .env 键名 的映射
 _FIELD_TO_ENV: dict[str, str] = {
@@ -46,4 +50,6 @@ _FIELD_TO_ENV: dict[str, str] = {
     "analysis_schedule_hour": "ANALYSIS_SCHEDULE_HOUR",
     "analysis_schedule_minute": "ANALYSIS_SCHEDULE_MINUTE",
     "analysis_schedule_interval_hours": "ANALYSIS_SCHEDULE_INTERVAL_HOURS",
+    "notes_inbox_dir": "NOTES_INBOX_DIR",
+    "notes_archive_dir": "NOTES_ARCHIVE_DIR",
 }

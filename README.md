@@ -10,13 +10,15 @@ A local-first work and learning evolution assistant. EvoWork AI automatically co
 
 **Skills** — Three-tier skill library (Thinking / Reusable / Open Source) with create, edit, toggle, backfill, pattern mining, usage tracking (record effectiveness per use), and AI-powered recommendations based on 30-day activity analysis.
 
-**AI Event Analysis** — Hierarchical period analysis (Week → Month → Year) with calendar-aligned periods (ISO week, calendar month/year). Week analyzes raw events via LLM, Month consolidates Week results, Year consolidates Month results. Supports manual, daily, biweekly (Wed+Sun), and interval scheduling via APScheduler.
+**AI Event Analysis** — Hierarchical period analysis (Week → Month → Year) with calendar-aligned periods (ISO week, calendar month/year). Week analyzes raw events via LLM, Month consolidates Week results, Year consolidates Month results. Supports manual, daily, biweekly (Wed+Sun), and interval scheduling via APScheduler. Automatic fallback to previous periods when current period has no events.
+
+**Note Import** — Import user documents (.md / .txt / .docx / .pdf / .xlsx) as work events via AI-powered content splitting. Supports manual file upload, inbox directory scanning, and configurable inbox path. Files are auto-archived by week (`archive/YYYY-MM/WXX/`). Content-hash deduplication prevents duplicate imports; files re-added to inbox are re-imported automatically.
 
 **AI Assistant** — Conversational interface with SSE streaming, conversation sidebar (create/switch/delete), persistent chat history (survives page navigation and browser refresh), and context-aware quick actions (period review, skill suggestions, data analysis).
 
 **Search** — Hybrid full-text + vector search (FTS5 + ChromaDB) with keyword highlighting, source/type filters, and trending terms.
 
-**Analytics** — Timeline Gantt chart, shell command statistics, work pattern analysis (24h distribution, project switching frequency, active days).
+**Analytics** — Calendar-aligned period analysis (ISO week / month 1st / year Jan 1st) with timeline Gantt chart, daily efficiency trend (minutes + events), shell command statistics, work pattern analysis (24h distribution, project switching frequency, active days).
 
 **Config** — System connection status (LLM / DB / Vector / Storage), collector management with staleness detection, per-collector setup guides, and skill toggle switches.
 
@@ -24,11 +26,11 @@ A local-first work and learning evolution assistant. EvoWork AI automatically co
 
 | Layer | Technology |
 |---|---|
-| Backend | FastAPI, SQLAlchemy, DuckDB, ChromaDB, Pydantic v2, pydantic-settings, APScheduler |
+| Backend | FastAPI, SQLAlchemy, DuckDB, ChromaDB, Pydantic v2, pydantic-settings, APScheduler, python-docx, PyPDF2, openpyxl |
 | Frontend | React 19, Vite 5, TypeScript, Tailwind CSS v4, shadcn/ui (Radix), Recharts |
 | AI | LLM Gateway (OpenAI-compatible), SSE streaming, vector search |
 | Collectors | Chrome Extension (Manifest V3), VSCode Extension (globalState persistence) |
-| Database | SQLite (default), with sequential migration system (Phase 2–7) |
+| Database | SQLite (default), with sequential migration system (Phase 2–8) |
 
 ## Architecture
 
@@ -39,10 +41,10 @@ EvoWork-AI/
 │   ├── core/                   # Config, dependencies, gateway interfaces
 │   ├── models/                 # SQLAlchemy ORM models
 │   ├── schemas/                # Pydantic request/response schemas
-│   ├── services/               # Business logic (collector, search, skill engine, AI, event analysis, scheduler)
-│   ├── modules/                # API routers (ai, analytics, collectors, events, insights, search, skills)
+│   ├── services/               # Business logic (collector, search, skill engine, AI, event analysis, scheduler, note import)
+│   ├── modules/                # API routers (ai, analytics, collectors, events, insights, notes, search, skills)
 │   ├── gateways/               # Pluggable LLM/DB/Vector gateway implementations
-│   └── migrations/             # Sequential schema migrations (phase 2–7)
+│   └── migrations/             # Sequential schema migrations (phase 2–8)
 ├── frontend/                   # React SPA (built by Vite, served by FastAPI)
 │   ├── src/pages/              # 7 page components (Dashboard, Events, Skills, AI, Search, Analytics, Config)
 │   ├── src/components/         # UI components (shadcn/ui + custom)
@@ -52,7 +54,7 @@ EvoWork-AI/
 │   ├── chrome-extension/       # Chrome Manifest V3 — browser activity tracking
 │   └── vscode-extension/       # VSCode — IDE editing activity tracking
 ├── scripts/                    # Import scripts, hook installers, setup_collectors.py
-├── data/                       # SQLite DB, Chroma index, file storage
+├── data/                       # SQLite DB, Chroma index, file storage, notes inbox/archive
 └── docs/                       # Design documents
 ```
 
@@ -155,6 +157,10 @@ STORAGE_PATH=./data/files
 # Collector Security (leave API_KEY empty to disable auth)
 COLLECTOR_API_KEY=
 COLLECTOR_MAX_BATCH_SIZE=500
+
+# Note Import (optional — defaults shown below)
+NOTES_INBOX_DIR=./data/notes/inbox
+NOTES_ARCHIVE_DIR=./data/notes/archive
 ```
 
 ### Collector Security
@@ -232,6 +238,7 @@ EvoWork uses a **push-based** architecture — the server never polls for data. 
 | Browser | Chrome extension internal timer | Every 5 minutes |
 | IDE | VSCode extension internal timer | Every 5 minutes |
 | Manual | User creates via Events page | On demand |
+| Note Import | Inbox scan or file upload via Events page | On demand (manual or scheduled) |
 
 ## API Overview
 
@@ -244,6 +251,7 @@ All API endpoints are prefixed with `/api`:
 | AI | `/api/ai/*` | Chat streaming, conversation management |
 | Skills | `/api/skills/*` | CRUD, recommendations, backfill, pattern mining, usage tracking |
 | Analytics | `/api/analytics/*` | Dashboard stats, timeline, engine queries |
+| Notes | `/api/notes/*` | Inbox scan, file upload, import history, open folder |
 | Search | `/api/search/*` | Hybrid FTS5+vector search, hot terms |
 
 Interactive API docs available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) (Swagger UI).
@@ -266,7 +274,7 @@ The Vite dev server proxies `/api` requests to the backend at `localhost:8000`.
 
 ### Database Migrations
 
-Schema changes use sequential migration scripts (`app/migrations/migrate_phase*.py`), executed automatically at startup. New columns require explicit `ALTER TABLE` — `create_all()` only creates tables that don't exist yet.
+Schema changes use sequential migration scripts (`app/migrations/migrate_phase*.py`), executed automatically at startup. New columns require explicit `ALTER TABLE` — `create_all()` only creates tables that don't exist yet. Phase 8 adds the `imported_notes` table for note import tracking.
 
 ## License
 

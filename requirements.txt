@@ -8,6 +8,11 @@ chromadb>=0.5
 duckdb>=1.0
 apscheduler>=3.10
 
+# ── Document Parsing (optional, for note import) ──
+python-docx>=1.0
+PyPDF2>=3.0
+openpyxl>=3.1
+
 # ── Dev (optional) ──────────────────────────────────
 # pip install -r requirements.txt
 # pip install pytest httpx  (for running tests)
