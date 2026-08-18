@@ -171,15 +171,23 @@ When `COLLECTOR_API_KEY` is set, all collector endpoints require an `X-API-Key` 
 
 ## Data Collectors
 
-EvoWork AI supports 6 data sources, each with automated collection:
+EvoWork AI supports 6 data sources, each with automated collection. Use the **Config page** to monitor all collector statuses — each one shows event count, last collected time, and a **Stale** warning when data stops flowing.
+
+Quick health check from the command line:
+
+```bash
+curl -s http://127.0.0.1:8000/api/collect/status
+```
 
 ### Git (post-commit hook)
 
-Records every commit with file changes, insertions/deletions, and branch info.
+Records every commit with file changes, insertions/deletions, and branch info. Idempotent — safe to re-run.
 
 ```bash
 python scripts/install_git_hook.py --repo /path/to/your/repo
 ```
+
+Verify: make a test commit (`git commit --allow-empty -m "test"`) and check the Config page for Git collector event count.
 
 ### Shell (PROMPT_COMMAND hook)
 
@@ -191,28 +199,47 @@ python scripts/install_shell_hook.py
 python scripts/parse_shell_history.py --hours 48
 ```
 
-### ActivityWatch (window activity)
+> Windows: Uses Git Bash (`~/.bashrc`). The hook captures `PROMPT_COMMAND` output after each command.
 
-Imports window focus data, aggregates by (app, title) into sessions, auto-classifies event types via app/URL mappings, and extracts project names from window titles.
+### ActivityWatch (window activity, optional)
+
+Imports desktop window focus data, aggregates by (app, title) into sessions, auto-classifies event types via app/URL mappings, and extracts project names from window titles. Requires [ActivityWatch](https://activitywatch.net/) to be installed and running.
 
 ```bash
-python scripts/activitywatch_import.py --hours 24
-# Cron: 0 */6 * * * python scripts/activitywatch_import.py --hours 6
+# Verify ActivityWatch is running:
+curl http://localhost:5600/api/0/buckets
+
+# Import recent data:
+python scripts/activitywatch_import.py --evowork-url http://127.0.0.1:8000 --hours 24
+
+# Scheduled import (Windows Task Scheduler or cron):
+# 0 */6 * * * python scripts/activitywatch_import.py --evowork-url http://127.0.0.1:8000 --hours 6
 ```
 
 ### Browser Extension (Chrome/Edge)
 
-Tracks page visit duration and URL patterns. Install from `collectors/chrome-extension/` via Chrome's developer mode. Configure the server URL in the extension popup.
+Tracks page visit duration and URL patterns. See [collectors/chrome-extension/README.md](collectors/chrome-extension/README.md) for full installation guide.
+
+1. `chrome://extensions/` → Enable Developer mode → Load unpacked → Select `collectors/chrome-extension/`
+2. Pin the extension icon, click it to configure server URL (default `http://localhost:8000`)
+3. Browse pages (>10s each) → Click "Send Now" → Check Config page for events
+
+> **Tip:** If data stops flowing, click the "Service Worker" link in `chrome://extensions` to check console logs. Manifest V3 service workers may be terminated by Chrome after inactivity.
 
 ### IDE Extension (VSCode)
 
-Tracks file editing activity with language detection, project inference, and line change metrics. Built with `globalState` persistence to survive extension restarts. Install from `collectors/vscode-extension/`:
+Tracks file editing activity with language detection, project inference, and line change metrics. See [collectors/vscode-extension/README.md](collectors/vscode-extension/README.md) for full installation guide.
 
 ```bash
-cd collectors/vscode-extension && npm install && npm run compile
-npx @vscode/vsce package
-# Install the .vsix file in VSCode
+cd collectors/vscode-extension
+npm install
+npm run compile
+npx @vscode/vsce package --no-dependencies
 ```
+
+Install the generated `.vsix` in VS Code: `Ctrl+Shift+P` → "Extensions: Install from VSIX...". Configure `evowork.serverUrl` in VS Code Settings.
+
+> PowerShell users: use `;` instead of `&&` to chain commands.
 
 ### Collector Staleness
 
@@ -234,7 +261,7 @@ EvoWork uses a **push-based** architecture — the server never polls for data. 
 |---|---|---|
 | Git | `post-commit` hook fires on every `git commit` | Per commit |
 | Shell | `PROMPT_COMMAND` hook fires after each command | Per command (with offline buffer) |
-| ActivityWatch | `activitywatch_import.py` script (manual or cron) | User-configured (e.g. every 6h) |
+| ActivityWatch | `activitywatch_import.py` script (manual or scheduled) | User-configured (e.g. every 6h) |
 | Browser | Chrome extension internal timer | Every 5 minutes |
 | IDE | VSCode extension internal timer | Every 5 minutes |
 | Manual | User creates via Events page | On demand |

@@ -66,7 +66,7 @@ const SETUP_GUIDES: Record<string, { title: string; steps: SetupStep[] }> = {
       {
         title: '1. 安装 post-commit hook',
         command: 'python scripts/install_git_hook.py --repo /path/to/your/repo',
-        description: '将 hook 脚本复制到目标仓库的 .git/hooks/post-commit',
+        description: '将 hook 脚本复制到目标仓库的 .git/hooks/post-commit，支持多次运行（幂等）',
       },
       {
         title: '2. 验证 hook 已安装',
@@ -76,7 +76,7 @@ const SETUP_GUIDES: Record<string, { title: string; steps: SetupStep[] }> = {
       {
         title: '3. 测试提交',
         command: 'git commit --allow-empty -m "test: verify evowork hook"',
-        description: '提交后检查 EvoWork Events 页面是否出现新事件',
+        description: '提交后检查 EvoWork Events 页面是否出现新事件，或查看 Config 页面 Git 采集器状态',
       },
     ],
   },
@@ -86,37 +86,45 @@ const SETUP_GUIDES: Record<string, { title: string; steps: SetupStep[] }> = {
       {
         title: '1. 自动安装（推荐）',
         command: 'python scripts/install_shell_hook.py',
-        description: '自动向 ~/.bashrc 或 ~/.zshrc 追加 source 行',
+        description: '自动检测 shell 类型（bash/zsh/Git Bash），向 rc 文件追加 source 行',
       },
       {
         title: '2. 手动安装',
-        command: 'echo "source $(pwd)/scripts/shell_hook.sh" >> ~/.bashrc && source ~/.bashrc',
-        description: '手动将 hook 脚本添加到 shell 配置文件',
+        command: 'echo "source $(pwd)/scripts/shell_hook.sh" >> ~/.bashrc; source ~/.bashrc',
+        description: '手动将 hook 脚本添加到 shell 配置文件。Windows Git Bash 用户请确认使用 ~/.bashrc',
       },
       {
         title: '3. 回溯历史命令',
         command: 'python scripts/parse_shell_history.py --hours 48',
         description: '从 ~/.bash_history / ~/.zsh_history 批量导入历史命令',
       },
+      {
+        title: '4. 验证',
+        description: '重启终端后执行任意命令，检查 Config 页面 Shell 采集器 event_count 是否增长',
+      },
     ],
   },
   activitywatch: {
-    title: 'ActivityWatch 导入',
+    title: 'ActivityWatch 导入（可选）',
     steps: [
       {
-        title: '1. 确保 ActivityWatch 正在运行',
-        command: 'curl http://localhost:5600/api/0/buckets',
-        description: '检查 ActivityWatch REST API 是否可访问',
+        title: '1. 安装并启动 ActivityWatch',
+        description: '从 activitywatch.net 下载安装，启动后托盘区会出现 AW 图标。确认 http://localhost:5600 可访问',
       },
       {
-        title: '2. 导入最近 24 小时数据',
-        command: 'python scripts/activitywatch_import.py --hours 24',
+        title: '2. 验证 ActivityWatch 运行',
+        command: 'curl http://localhost:5600/api/0/buckets',
+        description: '应返回 JSON 列表。如连接失败说明 ActivityWatch 未启动',
+      },
+      {
+        title: '3. 导入数据',
+        command: 'python scripts/activitywatch_import.py --evowork-url http://127.0.0.1:8000 --hours 24',
         description: '从 ActivityWatch 获取窗口活动并推送到 EvoWork',
       },
       {
-        title: '3. 定时导入（可选）',
-        command: 'crontab: 0 */6 * * * python scripts/activitywatch_import.py --hours 6',
-        description: '设置 cron 每 6 小时自动增量导入',
+        title: '4. 定时导入（可选）',
+        command: 'Windows: 任务计划程序 | Linux/Mac: crontab 0 */6 * * *',
+        description: '设置定时任务每 6 小时运行一次导入脚本',
       },
     ],
   },
@@ -125,15 +133,23 @@ const SETUP_GUIDES: Record<string, { title: string; steps: SetupStep[] }> = {
     steps: [
       {
         title: '1. 加载扩展',
-        description: '打开 Chrome → 地址栏输入 chrome://extensions → 开启「开发者模式」→ 点击「加载已解压的扩展程序」→ 选择 collectors/chrome-extension 目录',
+        description: 'Chrome → 地址栏输入 chrome://extensions → 开启「开发者模式」→ 点击「加载已解压的扩展程序」→ 选择 collectors/chrome-extension 目录',
       },
       {
-        title: '2. 配置服务器地址',
+        title: '2. 固定扩展图标',
+        description: '点击 Chrome 工具栏拼图图标 🧩 → 找到 EvoWork Browser Tracker → 点击📌固定，方便后续操作',
+      },
+      {
+        title: '3. 配置服务器地址',
         description: '点击扩展图标 → 输入 EvoWork 服务器地址（默认 http://localhost:8000）→ 确认连接状态变为绿色',
       },
       {
-        title: '3. 验证数据采集',
-        description: '浏览几个页面后，点击扩展图标查看缓冲事件数，点击「Send Now」→ 到 EvoWork Events 页面确认 browser 来源事件已出现',
+        title: '4. 验证数据采集',
+        description: '浏览几个页面后（每页停留 >10 秒），点击扩展图标 → 点击「Send Now」→ 到 Config 页面确认 Browser 采集器 event_count 增长',
+      },
+      {
+        title: '5. 排障提示',
+        description: '如数据停滞：点击 chrome://extensions 中扩展的「Service Worker」链接查看控制台日志；Manifest V3 扩展在浏览器重启后需确保 Service Worker 正常唤醒',
       },
     ],
   },
@@ -142,17 +158,25 @@ const SETUP_GUIDES: Record<string, { title: string; steps: SetupStep[] }> = {
     steps: [
       {
         title: '1. 编译扩展',
-        command: 'cd collectors/vscode-extension && npm install && npm run compile',
-        description: '安装依赖并编译 TypeScript',
+        command: 'cd collectors/vscode-extension; npm install; npm run compile',
+        description: '安装依赖并编译 TypeScript（PowerShell 用 ; 分隔命令，bash/zsh 可用 &&）',
       },
       {
-        title: '2. 打包并安装',
-        command: 'npx @vscode/vsce package',
-        description: '生成 .vsix 文件，然后在 VS Code 中按 Ctrl+Shift+P → Extensions: Install from VSIX → 选择生成的文件',
+        title: '2. 打包 VSIX',
+        command: 'npx @vscode/vsce package --no-dependencies',
+        description: '生成 evowork-ide-tracker-x.x.x.vsix 文件',
       },
       {
-        title: '3. 配置服务器',
-        description: '打开 VS Code Settings → 搜索 evowork → 设置 Server URL → 重启 VS Code。状态栏右侧会显示 EvoWork 追踪状态',
+        title: '3. 安装到 VS Code',
+        description: 'Ctrl+Shift+P → Extensions: Install from VSIX... → 选择生成的 .vsix 文件 → 重新加载窗口',
+      },
+      {
+        title: '4. 配置服务器',
+        description: 'Settings → 搜索 evowork → 设置 Server URL（默认 http://localhost:8000）→ 可选设置 API Key',
+      },
+      {
+        title: '5. 验证',
+        description: '打开任意代码文件编辑几分钟，检查 VS Code 底部状态栏出现 EvoWork 追踪指示标 → 到 Config 页面确认 IDE 采集器 event_count 增长',
       },
     ],
   },
