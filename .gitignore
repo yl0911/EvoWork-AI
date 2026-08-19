@@ -19,3 +19,4 @@ logs/
 *.jpg
 *.vsix
 collectors/vscode-extension/out/
+data

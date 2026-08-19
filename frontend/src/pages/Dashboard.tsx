@@ -23,6 +23,7 @@ interface DashboardProps {
 }
 
 const PRIMARY = 'hsl(262, 83%, 58%)';
+const EVENTS_COLOR = 'hsl(200, 80%, 55%)';
 
 const PIE_COLORS = [
   'hsl(262, 83%, 58%)', 'hsl(200, 80%, 55%)', 'hsl(142, 60%, 45%)',
@@ -908,7 +909,7 @@ export default function Dashboard({ period }: DashboardProps) {
         <CardContent>
           {dailyTimeData.length > 0 ? (
             <ResponsiveContainer width="100%" height={260}>
-              <ComposedChart data={dailyTimeData} margin={{ left: 10, right: 10, top: 10, bottom: 5 }}>
+              <ComposedChart data={dailyTimeData} margin={{ left: 20, right: 20, top: 10, bottom: 5 }}>
                 <defs>
                   <linearGradient id="gradPurple" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor={PRIMARY} stopOpacity={0.25} />
@@ -917,16 +918,33 @@ export default function Dashboard({ period }: DashboardProps) {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                <YAxis yAxisId="left" tick={{ fontSize: 11 }} allowDecimals={false} />
-                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} allowDecimals={false} />
+                <YAxis
+                  yAxisId="left"
+                  tick={{ fontSize: 11, fill: PRIMARY }}
+                  tickLine={{ stroke: PRIMARY }}
+                  axisLine={{ stroke: PRIMARY }}
+                  allowDecimals={false}
+                  domain={[0, 'auto']}
+                  label={{ value: '工作时长 (min)', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: PRIMARY } }}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tick={{ fontSize: 11, fill: EVENTS_COLOR }}
+                  tickLine={{ stroke: EVENTS_COLOR }}
+                  axisLine={{ stroke: EVENTS_COLOR }}
+                  allowDecimals={false}
+                  domain={[0, 'auto']}
+                  label={{ value: '事件数 (个)', angle: 90, position: 'insideRight', style: { fontSize: 11, fill: EVENTS_COLOR } }}
+                />
                 <Tooltip
                   formatter={(val: any, name: any) =>
-                    name === 'minutes' ? [`${val} min`, '工作时长'] : [`${val} 个`, '事件数']
+                    name === 'minutes' ? [`${val} min`, '工作时长 (左轴)'] : [`${val} 个`, '事件数 (右轴)']
                   }
                 />
-                <Legend formatter={(v) => v === 'minutes' ? '工作时长 (min)' : '事件数'} />
-                <Area yAxisId="left" type="natural" dataKey="value" stroke={PRIMARY} fill="url(#gradPurple)" strokeWidth={2.5} name="minutes" dot={{ r: 3, fill: PRIMARY }} activeDot={{ r: 5 }} />
-                <Bar yAxisId="right" dataKey="events" fill="hsl(200, 80%, 55%)" radius={[3, 3, 0, 0]} barSize={18} name="events" fillOpacity={0.7} />
+                <Legend formatter={(v) => v === 'minutes' ? '工作时长 (min) · 左轴' : '事件数 (个) · 右轴'} />
+                <Bar yAxisId="right" dataKey="events" fill={EVENTS_COLOR} radius={[3, 3, 0, 0]} barSize={18} name="events" fillOpacity={0.7} />
+                <Area yAxisId="left" type="monotone" dataKey="value" stroke={PRIMARY} fill="url(#gradPurple)" strokeWidth={2.5} name="minutes" dot={{ r: 3, fill: PRIMARY }} activeDot={{ r: 5 }} />
               </ComposedChart>
             </ResponsiveContainer>
           ) : (
